@@ -58,6 +58,8 @@ const allowedOrigins = [
 	"https://bswrxsti-787m61xns-skanderkefi88-8456s-projects.vercel.app",
 	"https://www.bswrxsti.net",
 	"https://bswrxstidata-production.up.railway.app",	
+	"https://spartaaan.vercel.app",
+	"https://spartaaan.com",
 ];
 
 app.use(
