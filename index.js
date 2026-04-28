@@ -200,6 +200,10 @@ app.use("/api/leaderboard", leaderboardRoutes);
 const monthlyRoutes = require("./routes/monthlyLeaderboardRoutes");
 app.use("/api/monthly-leaderboard", monthlyRoutes);
 
+// Tournament routes
+const tournamentRoutes = require("./routes/tournamentRoutes");
+app.use("/api/tournaments", tournamentRoutes);
+
 // Basic health check endpoint
 app.get("/health", (req, res) => {
 	res
