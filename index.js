@@ -196,6 +196,10 @@ const leaderboardRoutes = require("./routes/leaderboard");
 // Routes
 app.use("/api/leaderboard", leaderboardRoutes);
 
+// Monthly manual leaderboard routes (Bethog Monthly)
+const monthlyRoutes = require("./routes/monthlyLeaderboardRoutes");
+app.use("/api/monthly-leaderboard", monthlyRoutes);
+
 // Basic health check endpoint
 app.get("/health", (req, res) => {
 	res
