@@ -60,6 +60,7 @@ const allowedOrigins = [
 	"https://bswrxstidata-production.up.railway.app",	
 	"https://spartaaan.vercel.app",
 	"https://spartaaan.com",
+	"https://www.spartaaan.com",
 ];
 
 app.use(
