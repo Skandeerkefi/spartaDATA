@@ -177,9 +177,12 @@ exports.addGame = async (req, res) => {
 
     const { slotId, slotName, provider, image, url, betSize, bonusType, note } = req.body;
 
-    if (!slotId || !slotName) {
+    if (!slotName) {
       return res.status(400).json({ message: "Slot selection is required." });
     }
+
+    // Use slotName as fallback if slotId is empty
+    const finalSlotId = slotId || slotName;
 
     const normalizedBetSize = normalizeNumber(betSize);
     if (normalizedBetSize <= 0) {
@@ -191,7 +194,7 @@ exports.addGame = async (req, res) => {
     const game = await BonusHuntGame.create({
       hunt: hunt._id,
       order: gameCount + 1,
-      slotId,
+      slotId: finalSlotId,
       slotName,
       provider: provider || "",
       image: image || "",
