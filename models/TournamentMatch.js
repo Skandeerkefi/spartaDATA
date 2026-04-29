@@ -21,6 +21,10 @@ const tournamentMatchSchema = new mongoose.Schema(
       ref: "TournamentProgress",
       default: null,
     },
+    betSizeA: { type: Number, default: null },
+    payoutA: { type: Number, default: null },
+    betSizeB: { type: Number, default: null },
+    payoutB: { type: Number, default: null },
     multiplierA: { type: Number, default: null },
     multiplierB: { type: Number, default: null },
     winner: {

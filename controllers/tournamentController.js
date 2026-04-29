@@ -303,7 +303,13 @@ exports.selectSlot = async (req, res) => {
 
 exports.submitMatchResult = async (req, res) => {
   try {
-    const { multiplierA, multiplierB, winnerParticipantId } = req.body;
+    const {
+      betSizeA,
+      payoutA,
+      betSizeB,
+      payoutB,
+      winnerParticipantId,
+    } = req.body;
     const tournament = await Tournament.findById(req.params.id);
 
     if (!tournament) {
@@ -326,17 +332,33 @@ exports.submitMatchResult = async (req, res) => {
       return res.status(400).json({ message: "Both players must be assigned before submitting a result." });
     }
 
-    const scoreA = Number(multiplierA);
-    const scoreB = Number(multiplierB);
+    const parsedBetSizeA = Number(betSizeA);
+    const parsedPayoutA = Number(payoutA);
+    const parsedBetSizeB = Number(betSizeB);
+    const parsedPayoutB = Number(payoutB);
 
-    if (!Number.isFinite(scoreA) || !Number.isFinite(scoreB)) {
-      return res.status(400).json({ message: "Both multipliers are required." });
+    const scoreA = parsedBetSizeA > 0 ? parsedPayoutA / parsedBetSizeA : Number.NaN;
+    const scoreB = parsedBetSizeB > 0 ? parsedPayoutB / parsedBetSizeB : Number.NaN;
+
+    if (
+      !Number.isFinite(parsedBetSizeA) ||
+      !Number.isFinite(parsedPayoutA) ||
+      !Number.isFinite(parsedBetSizeB) ||
+      !Number.isFinite(parsedPayoutB) ||
+      parsedBetSizeA <= 0 ||
+      parsedBetSizeB <= 0 ||
+      parsedPayoutA < 0 ||
+      parsedPayoutB < 0 ||
+      !Number.isFinite(scoreA) ||
+      !Number.isFinite(scoreB)
+    ) {
+      return res.status(400).json({ message: "Bet size and payout are required for both players." });
     }
 
     let winnerProgressId = winnerParticipantId || null;
     if (!winnerProgressId) {
       if (scoreA === scoreB) {
-        return res.status(400).json({ message: "Multipliers cannot tie. Set a clear winner." });
+        return res.status(400).json({ message: "Calculated multipliers cannot tie. Adjust the bet size or payout." });
       }
 
       winnerProgressId = scoreA > scoreB ? match.playerA._id : match.playerB._id;
@@ -354,8 +376,12 @@ exports.submitMatchResult = async (req, res) => {
         ? match.playerB._id
         : match.playerA._id;
 
-    match.multiplierA = scoreA;
-    match.multiplierB = scoreB;
+  match.betSizeA = parsedBetSizeA;
+  match.payoutA = parsedPayoutA;
+  match.betSizeB = parsedBetSizeB;
+  match.payoutB = parsedPayoutB;
+  match.multiplierA = scoreA;
+  match.multiplierB = scoreB;
     match.winner = winnerProgressId;
     match.status = "completed";
     await match.save();
