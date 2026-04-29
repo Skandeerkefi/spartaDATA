@@ -22,4 +22,10 @@ router.post(
   controller.setPrizes
 );
 
+router.post(
+  "/:month/import-csv",
+  // verifyToken, isAdmin,
+  controller.importCsvEntries
+);
+
 module.exports = router;
