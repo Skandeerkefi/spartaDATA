@@ -336,6 +336,27 @@ exports.finishBonusHunt = async (req, res) => {
   }
 };
 
+exports.deleteBonusHunt = async (req, res) => {
+  try {
+    const hunt = await BonusHunt.findById(req.params.id);
+    if (!hunt) {
+      return res.status(404).json({ message: "Bonus hunt not found" });
+    }
+
+    if (hunt.status === "ongoing") {
+      return res.status(400).json({ message: "You cannot delete a live bonus hunt." });
+    }
+
+    await BonusHuntGame.deleteMany({ hunt: hunt._id });
+    await BonusHunt.findByIdAndDelete(hunt._id);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error("Delete bonus hunt error:", error);
+    res.status(500).json({ message: "Failed to delete bonus hunt" });
+  }
+};
+
 exports.updateGameResult = async (req, res) => {
   try {
     const hunt = await BonusHunt.findById(req.params.id);
@@ -394,9 +415,27 @@ exports.searchSlots = async (req, res) => {
     const url = `https://bonushunt.gg/api/slots?q=${encodeURIComponent(query)}&site=${encodeURIComponent(site)}`;
     const { data } = await axios.get(url, { timeout: 15000 });
 
-    const slots = Array.isArray(data)
+    const rawSlots = Array.isArray(data)
       ? data
       : data?.results || data?.slots || data?.data || [];
+
+    const slots = rawSlots
+      .map((slot) => ({
+        id: slot.id || slot._id || slot.slug || slot.name || slot.title || "",
+        name: slot.name || slot.title || slot.slotName || slot.slot_name || slot.gameName || "Unknown Slot",
+        image:
+          slot.image ||
+          slot.imageUrl ||
+          slot.thumbnail ||
+          slot.thumb ||
+          slot.cover ||
+          slot.art ||
+          "",
+        site: slot.site || site,
+        provider: slot.provider || slot.providerName || "",
+        raw: slot,
+      }))
+      .filter((slot) => slot.name && slot.name !== "Unknown Slot");
 
     res.json(slots);
   } catch (error) {

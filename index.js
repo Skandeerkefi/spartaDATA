@@ -211,6 +211,12 @@ app.use("/api/tournaments", tournamentRoutes);
 const bonusHuntRoutes = require("./routes/bonusHuntRoutes");
 app.use("/api/bonus-hunts", bonusHuntRoutes);
 
+// Points & Rewards routes
+const pointsRoutes = require('./routes/pointsRoutes');
+app.use('/api/points', pointsRoutes);
+
+const rewardsRoutes = require('./routes/rewardsRoutes');
+app.use('/api/rewards', rewardsRoutes);
 // Basic health check endpoint
 app.get("/health", (req, res) => {
 	res

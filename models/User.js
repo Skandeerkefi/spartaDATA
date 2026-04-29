@@ -5,6 +5,9 @@ const userSchema = new mongoose.Schema({
 	rainbetUsername: { type: String, required: true, unique: true }, // Rainbet username, required for giveaways
 	password: { type: String, required: true },
 	role: { type: String, enum: ["user", "admin"], default: "user" },
+	pointsBalance: { type: Number, default: 0 },
+	lastDailyAward: { type: Date },
+	dailyStreak: { type: Number, default: 0 },
 });
 
 const User = mongoose.model("User", userSchema);

@@ -61,7 +61,7 @@ exports.listEntries = async (req, res) => {
   try {
     const month = req.params.month || req.query.month;
     const filter = month ? { month } : {};
-    const entries = await MonthlyEntry.find(filter).sort({ wagering: -1, createdAt: 1 });
+    const entries = await MonthlyEntry.find(filter).sort({ wagering: -1, createdAt: 1 }).limit(25);
     res.json(entries);
   } catch (err) {
     console.error(err);
@@ -133,9 +133,13 @@ exports.importCsvEntries = async (req, res) => {
       return res.status(400).json({ error: "No valid usernames were found in the CSV" });
     }
 
+    const topEntries = importedEntries
+      .sort((a, b) => b.wagering - a.wagering)
+      .slice(0, 25);
+
     await MonthlyEntry.deleteMany({ month });
     const inserted = await MonthlyEntry.insertMany(
-      importedEntries.map((entry) => ({ ...entry, month }))
+      topEntries.map((entry) => ({ ...entry, month }))
     );
 
     res.json({

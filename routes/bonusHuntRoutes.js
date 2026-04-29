@@ -12,6 +12,7 @@ router.get("/:id", controller.getBonusHuntById);
 router.post("/", verifyToken, isAdmin, controller.createBonusHunt);
 router.post("/:id/start", verifyToken, isAdmin, controller.startBonusHunt);
 router.post("/:id/finish", verifyToken, isAdmin, controller.finishBonusHunt);
+router.delete("/:id", verifyToken, isAdmin, controller.deleteBonusHunt);
 
 router.post("/:id/games", verifyToken, isAdmin, controller.addGame);
 router.patch("/:id/games/:gameId", verifyToken, isAdmin, controller.updateGame);

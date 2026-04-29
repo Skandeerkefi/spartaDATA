@@ -10,6 +10,7 @@ router.get("/:id", tournamentController.getTournamentState);
 router.get("/:id/me", verifyToken, tournamentController.getMyProgress);
 
 router.post("/", verifyToken, isAdmin, tournamentController.createTournament);
+router.post("/:id/start", verifyToken, isAdmin, tournamentController.startTournament);
 router.post("/:id/join", verifyToken, tournamentController.joinTournament);
 router.post("/:id/slot-selection", verifyToken, tournamentController.selectSlot);
 router.post(
@@ -17,6 +18,13 @@ router.post(
   verifyToken,
   isAdmin,
   tournamentController.submitMatchResult
+);
+
+router.delete(
+  "/:id/participants/:participantId",
+  verifyToken,
+  isAdmin,
+  tournamentController.removeParticipant
 );
 
 module.exports = router;

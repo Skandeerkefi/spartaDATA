@@ -2,6 +2,21 @@ const axios = require("axios");
 const Tournament = require("../models/Tournament");
 const TournamentMatch = require("../models/TournamentMatch");
 const TournamentProgress = require("../models/TournamentProgress");
+const PointsTransaction = require('../models/PointsTransaction');
+const { User } = require('../models/User');
+
+const awardPoints = async (userId, amount, type, meta = {}) => {
+  try {
+    if (!userId || !Number.isFinite(Number(amount)) || Number(amount) === 0) return;
+    const user = await User.findById(userId);
+    if (!user) return;
+    user.pointsBalance = (user.pointsBalance || 0) + Number(amount);
+    await user.save();
+    await PointsTransaction.create({ user: userId, amount: Number(amount), type, meta });
+  } catch (err) {
+    console.error('awardPoints error:', err);
+  }
+};
 
 const ROUND_LABEL_BY_PLAYER_COUNT = {
   2: "Final",
@@ -132,6 +147,36 @@ exports.createTournament = async (req, res) => {
   }
 };
 
+exports.startTournament = async (req, res) => {
+  try {
+    const tournament = await Tournament.findById(req.params.id);
+    if (!tournament) {
+      return res.status(404).json({ message: "Tournament not found" });
+    }
+
+    if (tournament.status === "finished") {
+      const state = await buildState(tournament._id);
+      return res.json(state);
+    }
+
+    const playerCount = await TournamentProgress.countDocuments({ tournament: tournament._id });
+    if (playerCount === 0) {
+      return res.status(400).json({ message: "Add at least one participant before starting the tournament." });
+    }
+
+    tournament.status = "ongoing";
+    tournament.startedAt = tournament.startedAt || new Date();
+    tournament.currentRound = 0;
+    await tournament.save();
+
+    const state = await buildState(tournament._id);
+    res.json(state);
+  } catch (error) {
+    console.error("Start tournament error:", error);
+    res.status(500).json({ message: "Failed to start tournament" });
+  }
+};
+
 exports.getCurrentTournament = async (req, res) => {
   try {
     const tournament = await Tournament.findOne().sort({ createdAt: -1 }).lean();
@@ -239,6 +284,13 @@ exports.joinTournament = async (req, res) => {
 
     await match.save();
     await syncTournamentLifecycle(tournament._id);
+
+    // Award join points (small reward for joining)
+    try {
+      await awardPoints(progress.user, 10, 'tournament-join', { tournament: tournament._id });
+    } catch (e) {
+      console.error('Failed to award join points:', e);
+    }
 
     const state = await buildState(tournament._id);
     res.status(201).json({ progress, state });
@@ -386,6 +438,16 @@ exports.submitMatchResult = async (req, res) => {
     match.status = "completed";
     await match.save();
 
+    // Award match-win points to the winner (small amount), and if final, award tournament-win bonus
+    try {
+      await awardPoints(winnerProgressId, 5, 'tournament-match-win', { tournament: tournament._id, match: match._id });
+      if (match.roundIndex === totalRounds - 1) {
+        await awardPoints(winnerProgressId, 100, 'tournament-win', { tournament: tournament._id });
+      }
+    } catch (e) {
+      console.error('Failed to award tournament points:', e);
+    }
+
     const totalRounds = getTotalRounds(tournament.playerLimit);
     const winnerUpdate = {
       status: match.roundIndex === totalRounds - 1 ? "winner" : "active",
@@ -466,5 +528,48 @@ exports.searchSlots = async (req, res) => {
   } catch (error) {
     console.error("Slot search error:", error.response?.data || error.message);
     res.status(500).json({ message: "Failed to search slots" });
+  }
+};
+
+exports.removeParticipant = async (req, res) => {
+  try {
+    const tournament = await Tournament.findById(req.params.id);
+    if (!tournament) {
+      return res.status(404).json({ message: "Tournament not found" });
+    }
+
+    const progress = await TournamentProgress.findById(req.params.participantId);
+    if (!progress || String(progress.tournament) !== String(tournament._id)) {
+      return res.status(404).json({ message: "Participant not found in tournament" });
+    }
+
+    // Find and update all matches involving this participant
+    const matches = await TournamentMatch.find({ tournament: tournament._id });
+    for (const match of matches) {
+      let wasInMatch = false;
+      if (String(match.playerA) === String(progress._id)) {
+        match.playerA = null;
+        wasInMatch = true;
+      }
+      if (String(match.playerB) === String(progress._id)) {
+        match.playerB = null;
+        wasInMatch = true;
+      }
+      if (wasInMatch) {
+        match.status = match.playerA && match.playerB ? "ready" : "waiting";
+        match.winner = null;
+        await match.save();
+      }
+    }
+
+    // Delete the participant
+    await TournamentProgress.findByIdAndDelete(req.params.participantId);
+
+    // Rebuild tournament state
+    const state = await buildState(tournament._id);
+    res.json({ ok: true, state });
+  } catch (error) {
+    console.error("Remove participant error:", error);
+    res.status(500).json({ message: "Failed to remove participant" });
   }
 };

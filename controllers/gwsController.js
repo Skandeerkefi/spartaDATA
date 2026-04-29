@@ -1,5 +1,19 @@
 const GWS = require("../models/GWS");
 const { User } = require("../models/User");
+const PointsTransaction = require('../models/PointsTransaction');
+
+const awardPoints = async (userId, amount, type, meta = {}) => {
+	try {
+		if (!userId || !Number.isFinite(Number(amount)) || Number(amount) === 0) return;
+		const user = await User.findById(userId);
+		if (!user) return;
+		user.pointsBalance = (user.pointsBalance || 0) + Number(amount);
+		await user.save();
+		await PointsTransaction.create({ user: userId, amount: Number(amount), type, meta });
+	} catch (err) {
+		console.error('awardPoints error:', err);
+	}
+};
 const fetch = (...args) =>
 	import("node-fetch").then(({ default: fetch }) => fetch(...args));
 exports.createGWS = async (req, res) => {
@@ -32,6 +46,13 @@ exports.joinGWS = async (req, res) => {
 		gws.totalParticipants += 1;
 		gws.totalEntries += 1;
 		await gws.save();
+
+		// Award participation points
+		try {
+			await awardPoints(req.user.id, 1, 'giveaway-participation', { gws: gws._id });
+		} catch (e) {
+			console.error('Failed to award giveaway participation points:', e);
+		}
 
 		res.json({ message: "Joined GWS", gws });
 	} catch (error) {
@@ -70,6 +91,13 @@ exports.drawWinner = async (req, res) => {
 		gws.state = "complete";
 		await gws.save();
 
+		// Award winner points
+		try {
+			await awardPoints(winner._id, 40, 'giveaway-win', { gws: gws._id });
+		} catch (e) {
+			console.error('Failed to award giveaway winner points:', e);
+		}
+
 		res.json({
 			message: "Winner selected",
 			winner: { id: winner._id, kickUsername: winner.kickUsername },
@@ -91,6 +119,21 @@ exports.getAllGWS = async (req, res) => {
 		res.status(500).json({ message: "Failed to fetch giveaways." });
 	}
 };
+
+exports.deleteGWS = async (req, res) => {
+	try {
+		const giveaway = await GWS.findById(req.params.id);
+		if (!giveaway) {
+			return res.status(404).json({ message: "Giveaway not found" });
+		}
+
+		await GWS.findByIdAndDelete(req.params.id);
+		res.json({ ok: true });
+	} catch (error) {
+		console.error("Delete giveaway failed:", error);
+		res.status(500).json({ message: "Failed to delete giveaway." });
+	}
+};
 // Helper to auto-draw winner and update state
 exports.drawWinnerAuto = async (gws) => {
 	if (!gws.participants || gws.participants.length === 0) {
@@ -105,4 +148,11 @@ exports.drawWinnerAuto = async (gws) => {
 	gws.winner = winner;
 	gws.state = "complete"; // IMPORTANT: set state to complete here
 	await gws.save();
+
+	// Award winner points
+	try {
+		await awardPoints(winner, 40, 'giveaway-win', { gws: gws._id });
+	} catch (e) {
+		console.error('Failed to award giveaway winner points (auto):', e);
+	}
 };

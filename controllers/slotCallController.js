@@ -1,7 +1,22 @@
 const { SlotCall } = require("../models/SlotCall");
+const PointsTransaction = require('../models/PointsTransaction');
+const { User } = require('../models/User');
+
+const awardPoints = async (userId, amount, type, meta = {}) => {
+	try {
+		if (!userId || !Number.isFinite(Number(amount)) || Number(amount) === 0) return;
+		const user = await User.findById(userId);
+		if (!user) return;
+		user.pointsBalance = (user.pointsBalance || 0) + Number(amount);
+		await user.save();
+		await PointsTransaction.create({ user: userId, amount: Number(amount), type, meta });
+	} catch (err) {
+		console.error('awardPoints error (slot):', err);
+	}
+};
 
 exports.createSlotCall = async (req, res) => {
-	const { name } = req.body;
+	const { name, imageUrl, site } = req.body;
 	if (!name) {
 		return res.status(400).json({ message: "Slot name is required." });
 	}
@@ -10,8 +25,18 @@ exports.createSlotCall = async (req, res) => {
 		const slotCall = new SlotCall({
 			user: req.user.id,
 			name,
+			imageUrl: imageUrl || null,
+			site: site || "Stake",
 		});
 		await slotCall.save();
+
+		// Award points for creating a slot call
+		try {
+			await awardPoints(req.user.id, 8, 'slot-call-create', { slotCall: slotCall._id });
+		} catch (e) {
+			console.error('Failed to award slot call create points:', e);
+		}
+
 		res.status(201).json({ message: "Slot call submitted", slotCall });
 	} catch (err) {
 		res.status(500).json({ error: "Slot call failed" });
@@ -57,6 +82,20 @@ exports.changeSlotCallStatus = async (req, res) => {
 
 		if (!updated)
 			return res.status(404).json({ message: "Slot call not found." });
+
+
+		// Award small acceptance points
+		try {
+			if (status === 'accepted') {
+				await awardPoints(updated.user._id, 2, 'slot-call-accepted', { slotCall: updated._id });
+			}
+			// If played and x250Hit, award big milestone
+			if (status === 'played' && updated.x250Hit) {
+				await awardPoints(updated.user._id, 500, 'slot-call-x250', { slotCall: updated._id });
+			}
+		} catch (e) {
+			console.error('Failed to award slot call status points:', e);
+		}
 
 		res.status(200).json({ message: `Slot call ${status}`, slotCall: updated });
 	} catch (err) {
