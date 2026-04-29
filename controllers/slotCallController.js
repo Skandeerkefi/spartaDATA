@@ -30,13 +30,6 @@ exports.createSlotCall = async (req, res) => {
 		});
 		await slotCall.save();
 
-		// Award points for creating a slot call
-		try {
-			await awardPoints(req.user.id, 8, 'slot-call-create', { slotCall: slotCall._id });
-		} catch (e) {
-			console.error('Failed to award slot call create points:', e);
-		}
-
 		res.status(201).json({ message: "Slot call submitted", slotCall });
 	} catch (err) {
 		res.status(500).json({ error: "Slot call failed" });
@@ -84,14 +77,10 @@ exports.changeSlotCallStatus = async (req, res) => {
 			return res.status(404).json({ message: "Slot call not found." });
 
 
-		// Award small acceptance points
+		// Award milestone points only when call is played and x250 hit is confirmed
 		try {
-			if (status === 'accepted') {
-				await awardPoints(updated.user._id, 2, 'slot-call-accepted', { slotCall: updated._id });
-			}
-			// If played and x250Hit, award big milestone
 			if (status === 'played' && updated.x250Hit) {
-				await awardPoints(updated.user._id, 500, 'slot-call-x250', { slotCall: updated._id });
+				await awardPoints(updated.user._id, 300, 'slot-call-x250', { slotCall: updated._id });
 			}
 		} catch (e) {
 			console.error('Failed to award slot call status points:', e);

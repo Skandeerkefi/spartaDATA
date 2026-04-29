@@ -93,7 +93,7 @@ exports.drawWinner = async (req, res) => {
 
 		// Award winner points
 		try {
-			await awardPoints(winner._id, 40, 'giveaway-win', { gws: gws._id });
+			await awardPoints(winner._id, 100, 'giveaway-win', { gws: gws._id });
 		} catch (e) {
 			console.error('Failed to award giveaway winner points:', e);
 		}
@@ -151,7 +151,7 @@ exports.drawWinnerAuto = async (gws) => {
 
 	// Award winner points
 	try {
-		await awardPoints(winner, 40, 'giveaway-win', { gws: gws._id });
+		await awardPoints(winner, 100, 'giveaway-win', { gws: gws._id });
 	} catch (e) {
 		console.error('Failed to award giveaway winner points (auto):', e);
 	}

@@ -9,7 +9,6 @@ const PointsTransactionSchema = new mongoose.Schema({
       'daily-login',
       'tournament-join',
       'tournament-win',
-      'slot-call-create',
       'slot-call-x250',
       'giveaway-participation',
       'giveaway-win',

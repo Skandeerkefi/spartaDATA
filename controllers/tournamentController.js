@@ -492,7 +492,7 @@ exports.submitMatchResult = async (req, res) => {
     try {
       await awardPoints(winnerProgressId, 5, 'tournament-match-win', { tournament: tournament._id, match: match._id });
       if (match.roundIndex === totalRounds - 1) {
-        await awardPoints(winnerProgressId, 100, 'tournament-win', { tournament: tournament._id });
+        await awardPoints(winnerProgressId, 500, 'tournament-win', { tournament: tournament._id });
       }
     } catch (e) {
       console.error('Failed to award tournament points:', e);
