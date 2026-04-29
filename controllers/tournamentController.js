@@ -164,6 +164,7 @@ exports.startTournament = async (req, res) => {
       return res.status(400).json({ message: "Add at least one participant before starting the tournament." });
     }
 
+    // Allow starting with partial players - empty slots will auto-win with x0
     tournament.status = "ongoing";
     tournament.startedAt = tournament.startedAt || new Date();
     tournament.currentRound = 0;
@@ -380,8 +381,12 @@ exports.submitMatchResult = async (req, res) => {
       return res.status(400).json({ message: "Match already completed." });
     }
 
-    if (!match.playerA || !match.playerB) {
-      return res.status(400).json({ message: "Both players must be assigned before submitting a result." });
+    // Allow matches with only one player (the other gets x0 auto-bye)
+    const hasPlayerA = !!match.playerA;
+    const hasPlayerB = !!match.playerB;
+
+    if (!hasPlayerA && !hasPlayerB) {
+      return res.status(400).json({ message: "At least one player must be assigned before submitting a result." });
     }
 
     const parsedBetSizeA = Number(betSizeA);
@@ -389,54 +394,99 @@ exports.submitMatchResult = async (req, res) => {
     const parsedBetSizeB = Number(betSizeB);
     const parsedPayoutB = Number(payoutB);
 
-    const scoreA = parsedBetSizeA > 0 ? parsedPayoutA / parsedBetSizeA : Number.NaN;
-    const scoreB = parsedBetSizeB > 0 ? parsedPayoutB / parsedBetSizeB : Number.NaN;
+    // For bye matches (no opponent), absent player gets x0
+    let scoreA, scoreB;
+    
+    if (hasPlayerA && hasPlayerB) {
+      // Both players present - require full result
+      scoreA = parsedBetSizeA > 0 ? parsedPayoutA / parsedBetSizeA : Number.NaN;
+      scoreB = parsedBetSizeB > 0 ? parsedPayoutB / parsedBetSizeB : Number.NaN;
 
-    if (
-      !Number.isFinite(parsedBetSizeA) ||
-      !Number.isFinite(parsedPayoutA) ||
-      !Number.isFinite(parsedBetSizeB) ||
-      !Number.isFinite(parsedPayoutB) ||
-      parsedBetSizeA <= 0 ||
-      parsedBetSizeB <= 0 ||
-      parsedPayoutA < 0 ||
-      parsedPayoutB < 0 ||
-      !Number.isFinite(scoreA) ||
-      !Number.isFinite(scoreB)
-    ) {
-      return res.status(400).json({ message: "Bet size and payout are required for both players." });
+      if (
+        !Number.isFinite(parsedBetSizeA) ||
+        !Number.isFinite(parsedPayoutA) ||
+        !Number.isFinite(parsedBetSizeB) ||
+        !Number.isFinite(parsedPayoutB) ||
+        parsedBetSizeA <= 0 ||
+        parsedBetSizeB <= 0 ||
+        parsedPayoutA < 0 ||
+        parsedPayoutB < 0 ||
+        !Number.isFinite(scoreA) ||
+        !Number.isFinite(scoreB)
+      ) {
+        return res.status(400).json({ message: "Bet size and payout are required for both players." });
+      }
+    } else if (hasPlayerA && !hasPlayerB) {
+      // Only player A - check player A's data, auto x0 for player B
+      if (!Number.isFinite(parsedBetSizeA) || !Number.isFinite(parsedPayoutA) || parsedBetSizeA <= 0) {
+        return res.status(400).json({ message: "Bet size and payout are required for the present player." });
+      }
+      scoreA = parsedPayoutA / parsedBetSizeA;
+      scoreB = 0; // Bye - auto x0
+      // Set defaults for missing player data
+      match.betSizeB = parsedBetSizeA;
+      match.payoutB = 0;
+    } else {
+      // Only player B - check player B's data, auto x0 for player A
+      if (!Number.isFinite(parsedBetSizeB) || !Number.isFinite(parsedPayoutB) || parsedBetSizeB <= 0) {
+        return res.status(400).json({ message: "Bet size and payout are required for the present player." });
+      }
+      scoreB = parsedPayoutB / parsedBetSizeB;
+      scoreA = 0; // Bye - auto x0
+      // Set defaults for missing player data
+      match.betSizeA = parsedBetSizeB;
+      match.payoutA = 0;
     }
 
     let winnerProgressId = winnerParticipantId || null;
     if (!winnerProgressId) {
-      if (scoreA === scoreB) {
+      if (!hasPlayerA && !hasPlayerB) {
+        return res.status(400).json({ message: "Cannot determine winner when no players are present." });
+      }
+      if (scoreA === scoreB && hasPlayerA && hasPlayerB) {
         return res.status(400).json({ message: "Calculated multipliers cannot tie. Adjust the bet size or payout." });
       }
-
-      winnerProgressId = scoreA > scoreB ? match.playerA._id : match.playerB._id;
+      // If only one player, they auto-win. Otherwise, higher score wins.
+      if (hasPlayerA && !hasPlayerB) {
+        winnerProgressId = match.playerA._id;
+      } else if (!hasPlayerA && hasPlayerB) {
+        winnerProgressId = match.playerB._id;
+      } else {
+        winnerProgressId = scoreA > scoreB ? match.playerA._id : match.playerB._id;
+      }
     }
 
-    if (
-      String(winnerProgressId) !== String(match.playerA._id) &&
-      String(winnerProgressId) !== String(match.playerB._id)
-    ) {
-      return res.status(400).json({ message: "Winner must be one of the match participants." });
+    if (hasPlayerA && hasPlayerB) {
+      if (
+        String(winnerProgressId) !== String(match.playerA._id) &&
+        String(winnerProgressId) !== String(match.playerB._id)
+      ) {
+        return res.status(400).json({ message: "Winner must be one of the match participants." });
+      }
+    } else if (hasPlayerA) {
+      if (String(winnerProgressId) !== String(match.playerA._id)) {
+        return res.status(400).json({ message: "Winner must be player A (the only present player)." });
+      }
+    } else {
+      if (String(winnerProgressId) !== String(match.playerB._id)) {
+        return res.status(400).json({ message: "Winner must be player B (the only present player)." });
+      }
     }
 
-    const loserProgressId =
-      String(winnerProgressId) === String(match.playerA._id)
-        ? match.playerB._id
-        : match.playerA._id;
-
-  match.betSizeA = parsedBetSizeA;
-  match.payoutA = parsedPayoutA;
-  match.betSizeB = parsedBetSizeB;
-  match.payoutB = parsedPayoutB;
-  match.multiplierA = scoreA;
-  match.multiplierB = scoreB;
+    match.betSizeA = match.betSizeA !== undefined ? match.betSizeA : parsedBetSizeA;
+    match.payoutA = match.payoutA !== undefined ? match.payoutA : parsedPayoutA;
+    match.betSizeB = match.betSizeB !== undefined ? match.betSizeB : parsedBetSizeB;
+    match.payoutB = match.payoutB !== undefined ? match.payoutB : parsedPayoutB;
+    match.multiplierA = scoreA;
+    match.multiplierB = scoreB;
     match.winner = winnerProgressId;
     match.status = "completed";
     await match.save();
+
+    const totalRounds = getTotalRounds(tournament.playerLimit);
+    const loserProgressId = hasPlayerA && hasPlayerB
+      ? (String(winnerProgressId) === String(match.playerA._id) ? match.playerB._id : match.playerA._id)
+      : (hasPlayerA ? match.playerB?._id : match.playerA?._id);
 
     // Award match-win points to the winner (small amount), and if final, award tournament-win bonus
     try {
@@ -448,7 +498,6 @@ exports.submitMatchResult = async (req, res) => {
       console.error('Failed to award tournament points:', e);
     }
 
-    const totalRounds = getTotalRounds(tournament.playerLimit);
     const winnerUpdate = {
       status: match.roundIndex === totalRounds - 1 ? "winner" : "active",
       currentRound:
@@ -460,12 +509,15 @@ exports.submitMatchResult = async (req, res) => {
 
     await TournamentProgress.findByIdAndUpdate(winnerProgressId, winnerUpdate);
 
-    await TournamentProgress.findByIdAndUpdate(loserProgressId, {
-      status: "eliminated",
-      eliminatedRound: match.roundIndex,
-      eliminatedMatch: match._id,
-      lastMatch: match._id,
-    });
+    // Only update loser if they exist (not a bye match)
+    if (loserProgressId) {
+      await TournamentProgress.findByIdAndUpdate(loserProgressId, {
+        status: "eliminated",
+        eliminatedRound: match.roundIndex,
+        eliminatedMatch: match._id,
+        lastMatch: match._id,
+      });
+    }
 
     if (match.roundIndex === totalRounds - 1) {
       tournament.status = "finished";
