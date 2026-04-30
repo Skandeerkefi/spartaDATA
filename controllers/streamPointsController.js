@@ -49,6 +49,28 @@ async function fetchStreamLeaderboard(searchTerm) {
 	return candidates;
 }
 
+async function fetchFullStreamLeaderboard() {
+	const { data } = await axios.get(STREAM_LEADERBOARD_URL, {
+		params: {
+			platform: STREAM_PLATFORM,
+			user: STREAM_SOURCE_USER,
+		},
+		timeout: 15000,
+	});
+
+	const candidates = Array.isArray(data)
+		? data
+		: Array.isArray(data?.data)
+			? data.data
+			: Array.isArray(data?.results)
+				? data.results
+				: Array.isArray(data?.leaderboard)
+					? data.leaderboard
+					: [];
+
+	return candidates;
+}
+
 function pickUserRow(rows, kickUsername) {
 	const target = normalizeUsername(kickUsername);
 	if (!target) return null;
@@ -59,6 +81,49 @@ function pickUserRow(rows, kickUsername) {
 		);
 		return rowName === target;
 	});
+}
+
+function buildApiNameLookup(rows) {
+	const map = new Map();
+	rows.forEach((row) => {
+		const fields = [
+			row?.kickUsername,
+			row?.username,
+			row?.name,
+			row?.user,
+			row?.displayName,
+		].filter(Boolean);
+
+		fields.forEach((field) => {
+			const normalized = normalizeUsername(field);
+			if (normalized && !map.has(normalized)) {
+				map.set(normalized, row);
+			}
+		});
+	});
+	return map;
+}
+
+function matchPlatformUserToApi(kickUsername, apiLookupMap) {
+	const target = normalizeUsername(kickUsername);
+	if (!target) return null;
+
+	if (apiLookupMap.has(target)) {
+		return apiLookupMap.get(target);
+	}
+
+	const apiNames = Array.from(apiLookupMap.keys());
+	const fuzzyMatch = apiNames.find(apiName => {
+		const cleanedPlatform = target.replace(/[^a-z0-9]/g, '');
+		const cleanedApi = apiName.replace(/[^a-z0-9]/g, '');
+		return cleanedPlatform === cleanedApi;
+	});
+
+	if (fuzzyMatch) {
+		return apiLookupMap.get(fuzzyMatch);
+	}
+
+	return null;
 }
 
 function extractStreamStats(row) {
@@ -245,6 +310,139 @@ exports.syncStreamPoints = async (req, res) => {
 		console.error('syncStreamPoints error:', err.response?.data || err.message);
 		return res.status(500).json({
 			error: 'Failed to sync stream points',
+			details: err.response?.data || err.message,
+		});
+	}
+};
+
+exports.syncAllStreamPoints = async (req, res) => {
+	try {
+		const dryRun = req.body?.dryRun === true || req.query?.dryRun === 'true';
+		const limit = Math.min(Math.max(Number(req.body?.limit || req.query?.limit || 500), 1), 5000);
+
+		const users = await User.find({}, {
+			kickUsername: 1,
+			streamPointsBaseline: 1,
+			streamPointsCurrent: 1,
+			streamPointsTotals: 1,
+			pointsBalance: 1,
+		})
+			.sort({ kickUsername: 1 })
+			.limit(limit)
+			.lean();
+
+		if (users.length === 0) {
+			return res.json({ ok: true, processed: 0, seeded: 0, updated: 0, matched: 0, unmatched: 0, changes: [] });
+		}
+
+		const allApiRows = await fetchFullStreamLeaderboard();
+		const apiLookupMap = buildApiNameLookup(allApiRows);
+
+		console.log(`[Stream Sync] Fetched ${allApiRows.length} rows from API, looking up ${users.length} platform users`);
+
+		const changes = [];
+		let seeded = 0;
+		let updated = 0;
+		let matchedCount = 0;
+		let unmatchedCount = 0;
+
+		for (const user of users) {
+			const row = matchPlatformUserToApi(user.kickUsername, apiLookupMap);
+
+			if (!row) {
+				unmatchedCount++;
+				changes.push({
+					userId: user._id,
+					kickUsername: user.kickUsername,
+					matched: false,
+					reason: 'no_match_found',
+				});
+				continue;
+			}
+
+			matchedCount++;
+			const stats = extractStreamStats(row);
+			const hasBaseline = Boolean(user.streamPointsBaseline?.updatedAt);
+			if (!hasBaseline) seeded += 1;
+			else updated += 1;
+
+			if (!dryRun) {
+				const session = await mongoose.startSession();
+				session.startTransaction();
+				try {
+					const freshUser = await User.findById(user._id).session(session);
+					if (!freshUser) {
+						await session.abortTransaction();
+						session.endSession();
+						continue;
+					}
+
+					const result = await applyUserStreamDelta(freshUser, stats, {
+						seedOnly: !hasBaseline,
+						session,
+					});
+
+					await session.commitTransaction();
+					session.endSession();
+					changes.push({
+						userId: user._id,
+						kickUsername: user.kickUsername,
+						apiName: stats.name,
+						matched: true,
+						...result,
+					});
+				} catch (err) {
+					await session.abortTransaction();
+					session.endSession();
+					throw err;
+				}
+			} else {
+				const watchtimePointsPer2 = await pointsConfigController.getPointsForAction('stream-watchtime');
+				const levelPointsPerLevel = await pointsConfigController.getPointsForAction('stream-level');
+				const prevWatchtime = toNumber((user.streamPointsCurrent || user.streamPointsBaseline)?.watchtime);
+				const prevLevel = toNumber((user.streamPointsCurrent || user.streamPointsBaseline)?.level);
+				const watchtimeDelta = Math.max(0, stats.watchtime - prevWatchtime);
+				const levelDelta = Math.max(0, stats.level - prevLevel);
+				changes.push({
+					userId: user._id,
+					kickUsername: user.kickUsername,
+					apiName: stats.name,
+					matched: true,
+					seeded: !hasBaseline,
+					appliedPoints: hasBaseline
+						? Math.floor(watchtimeDelta / 2) * watchtimePointsPer2 + levelDelta * levelPointsPerLevel
+						: 0,
+					watchtimeDelta,
+					levelDelta,
+					baseline: {
+						watchtime: stats.watchtime,
+						level: stats.level,
+						name: stats.name,
+					},
+					current: {
+						watchtime: stats.watchtime,
+						level: stats.level,
+						name: stats.name,
+					},
+				});
+			}
+		}
+
+		console.log(`[Stream Sync] Matched: ${matchedCount}, Unmatched: ${unmatchedCount}, Seeded: ${seeded}, Updated: ${updated}`);
+
+		return res.json({
+			ok: true,
+			processed: users.length,
+			seeded,
+			updated,
+			matched: matchedCount,
+			unmatched: unmatchedCount,
+			changes,
+		});
+	} catch (err) {
+		console.error('syncAllStreamPoints error:', err.response?.data || err.message);
+		return res.status(500).json({
+			error: 'Failed to sync all stream points',
 			details: err.response?.data || err.message,
 		});
 	}
