@@ -2,12 +2,11 @@ const axios = require('axios');
 const mongoose = require('mongoose');
 const { User } = require('../models/User');
 const PointsTransaction = require('../models/PointsTransaction');
+const pointsConfigController = require('./pointsConfigController');
 
 const STREAM_LEADERBOARD_URL = process.env.STREAM_LEADERBOARD_URL || 'https://botrix.live/api/public/leaderboard';
 const STREAM_PLATFORM = process.env.STREAM_PLATFORM || 'kick';
 const STREAM_SOURCE_USER = process.env.STREAM_LEADERBOARD_USER || process.env.STREAM_SEARCH || 'spartaaan';
-const WATCHTIME_POINTS_PER_2 = 2;
-const LEVEL_POINTS = 25;
 
 function normalizeUsername(value) {
 	return String(value || '').trim().toLowerCase();
@@ -84,8 +83,8 @@ async function applyUserStreamDelta(user, currentStats, options = {}) {
 
 	const watchtimeDelta = Math.max(0, currentWatchtime - previousWatchtime);
 	const levelDelta = Math.max(0, currentLevel - previousLevel);
-	const watchtimePoints = Math.floor(watchtimeDelta / 2) * WATCHTIME_POINTS_PER_2;
-	const levelPoints = levelDelta * LEVEL_POINTS;
+	const watchtimePoints = Math.floor(watchtimeDelta / 2) * await pointsConfigController.getPointsForAction('stream-watchtime');
+	const levelPoints = levelDelta * await pointsConfigController.getPointsForAction('stream-level');
 	const totalPoints = seedOnly ? 0 : watchtimePoints + levelPoints;
 
 	if (!baseline.updatedAt) {
@@ -213,12 +212,14 @@ exports.syncStreamPoints = async (req, res) => {
 					throw err;
 				}
 			} else {
+				const watchtimePointsPer2 = await pointsConfigController.getPointsForAction('stream-watchtime');
+				const levelPointsPerLevel = await pointsConfigController.getPointsForAction('stream-level');
 				changes.push({
 					userId: user._id,
 					kickUsername: user.kickUsername,
 					matched: true,
 					seeded: !hasBaseline,
-					appliedPoints: hasBaseline ? Math.max(0, Math.floor(Math.max(0, stats.watchtime - toNumber((user.streamPointsCurrent || user.streamPointsBaseline)?.watchtime)) / 2) * WATCHTIME_POINTS_PER_2) + Math.max(0, stats.level - toNumber((user.streamPointsCurrent || user.streamPointsBaseline)?.level)) * LEVEL_POINTS : 0,
+					appliedPoints: hasBaseline ? Math.max(0, Math.floor(Math.max(0, stats.watchtime - toNumber((user.streamPointsCurrent || user.streamPointsBaseline)?.watchtime)) / 2) * watchtimePointsPer2) + Math.max(0, stats.level - toNumber((user.streamPointsCurrent || user.streamPointsBaseline)?.level)) * levelPointsPerLevel : 0,
 					baseline: {
 						watchtime: stats.watchtime,
 						level: stats.level,
@@ -263,11 +264,13 @@ exports.listStreamUsers = async (req, res) => {
 			.limit(limit)
 			.lean();
 
-		const rows = users.map((user) => {
+		const rows = await Promise.all(users.map(async (user) => {
 			const baseline = user.streamPointsBaseline || {};
 			const current = user.streamPointsCurrent || baseline || {};
 			const watchtimeDelta = Math.max(0, toNumber(current.watchtime) - toNumber(baseline.watchtime));
 			const levelDelta = Math.max(0, toNumber(current.level) - toNumber(baseline.level));
+			const watchtimePointsPer2 = await pointsConfigController.getPointsForAction('stream-watchtime');
+			const levelPointsPerLevel = await pointsConfigController.getPointsForAction('stream-level');
 			return {
 				userId: user._id,
 				kickUsername: user.kickUsername,
@@ -285,12 +288,12 @@ exports.listStreamUsers = async (req, res) => {
 				},
 				watchtimeDelta,
 				levelDelta,
-				watchtimePoints: Math.floor(watchtimeDelta / 2) * WATCHTIME_POINTS_PER_2,
-				levelPoints: levelDelta * LEVEL_POINTS,
+				watchtimePoints: Math.floor(watchtimeDelta / 2) * watchtimePointsPer2,
+				levelPoints: levelDelta * levelPointsPerLevel,
 				streamPointsTotals: user.streamPointsTotals || { watchtime: 0, level: 0 },
 				pointsBalance: Number(user.pointsBalance || 0),
 			};
-		});
+		}));
 
 		res.json({ ok: true, rows });
 	} catch (err) {

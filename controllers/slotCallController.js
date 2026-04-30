@@ -1,6 +1,7 @@
 const { SlotCall } = require("../models/SlotCall");
 const PointsTransaction = require('../models/PointsTransaction');
 const { User } = require('../models/User');
+const pointsConfigController = require('./pointsConfigController');
 
 const awardPoints = async (userId, amount, type, meta = {}) => {
 	try {
@@ -80,7 +81,8 @@ exports.changeSlotCallStatus = async (req, res) => {
 		// Award milestone points only when call is played and x250 hit is confirmed
 		try {
 			if (status === 'played' && updated.x250Hit) {
-				await awardPoints(updated.user._id, 300, 'slot-call-x250', { slotCall: updated._id });
+				const x250Points = await pointsConfigController.getPointsForAction('slot-call-x250');
+				await awardPoints(updated.user._id, x250Points, 'slot-call-x250', { slotCall: updated._id });
 			}
 		} catch (e) {
 			console.error('Failed to award slot call status points:', e);

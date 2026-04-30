@@ -240,6 +240,16 @@ app.use('/api/stream-points', streamPointsRoutes);
 
 const rewardsRoutes = require('./routes/rewardsRoutes');
 app.use('/api/rewards', rewardsRoutes);
+
+const pointsConfigRoutes = require('./routes/pointsConfigRoutes');
+app.use('/api/points-config', pointsConfigRoutes);
+
+// Initialize points config defaults
+const pointsConfigController = require('./controllers/pointsConfigController');
+pointsConfigController.initializeDefaults().catch(err => 
+  console.error('Failed to initialize points config:', err)
+);
+
 // Basic health check endpoint
 app.get("/health", (req, res) => {
 	res

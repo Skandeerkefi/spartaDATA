@@ -1,6 +1,7 @@
 const GWS = require("../models/GWS");
 const { User } = require("../models/User");
 const PointsTransaction = require('../models/PointsTransaction');
+const pointsConfigController = require('./pointsConfigController');
 
 const awardPoints = async (userId, amount, type, meta = {}) => {
 	try {
@@ -47,9 +48,10 @@ exports.joinGWS = async (req, res) => {
 		gws.totalEntries += 1;
 		await gws.save();
 
-		// Award participation points
+		// Award participation points using configured amount
 		try {
-			await awardPoints(req.user.id, 5, 'giveaway-participation', { gws: gws._id });
+			const participationPoints = await pointsConfigController.getPointsForAction('giveaway-participation');
+			await awardPoints(req.user.id, participationPoints, 'giveaway-participation', { gws: gws._id });
 		} catch (e) {
 			console.error('Failed to award giveaway participation points:', e);
 		}
@@ -91,9 +93,10 @@ exports.drawWinner = async (req, res) => {
 		gws.state = "complete";
 		await gws.save();
 
-		// Award winner points
+		// Award winner points using configured amount
 		try {
-			await awardPoints(winner._id, 200, 'giveaway-win', { gws: gws._id });
+			const winPoints = await pointsConfigController.getPointsForAction('giveaway-win');
+			await awardPoints(winner._id, winPoints, 'giveaway-win', { gws: gws._id });
 		} catch (e) {
 			console.error('Failed to award giveaway winner points:', e);
 		}
@@ -149,9 +152,10 @@ exports.drawWinnerAuto = async (gws) => {
 	gws.state = "complete"; // IMPORTANT: set state to complete here
 	await gws.save();
 
-		// Award winner points
+		// Award winner points using configured amount
 		try {
-			await awardPoints(winner, 200, 'giveaway-win', { gws: gws._id });
+			const winPoints = await pointsConfigController.getPointsForAction('giveaway-win');
+			await awardPoints(winner, winPoints, 'giveaway-win', { gws: gws._id });
 		} catch (e) {
 			console.error('Failed to award giveaway winner points (auto):', e);
 		}

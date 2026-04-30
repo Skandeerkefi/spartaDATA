@@ -1,6 +1,7 @@
 const { User } = require('../models/User');
 const mongoose = require('mongoose');
 const PointsTransaction = require('../models/PointsTransaction');
+const pointsConfigController = require('./pointsConfigController');
 
 
 // Get user balance and recent transactions
@@ -171,9 +172,9 @@ exports.dailyLogin = async (req, res) => {
         }
       }
 
-      // Base reward and streak bonus every 7 days
-      const base = 5;
-      const bonus = streak > 0 && streak % 7 === 0 ? 2 : 0;
+      // Base reward and streak bonus every 7 days (using dynamic config)
+      const base = await pointsConfigController.getPointsForAction('daily-login');
+      const bonus = streak > 0 && streak % 7 === 0 ? base : 0;
       const total = base + bonus;
 
       user.pointsBalance = (user.pointsBalance || 0) + total;

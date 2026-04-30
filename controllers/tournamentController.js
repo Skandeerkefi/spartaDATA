@@ -4,6 +4,7 @@ const TournamentMatch = require("../models/TournamentMatch");
 const TournamentProgress = require("../models/TournamentProgress");
 const PointsTransaction = require('../models/PointsTransaction');
 const { User } = require('../models/User');
+const pointsConfigController = require('./pointsConfigController');
 
 const awardPoints = async (userId, amount, type, meta = {}) => {
   try {
@@ -312,7 +313,8 @@ exports.joinTournament = async (req, res) => {
 
     // Award join points (small reward for joining)
     try {
-      await awardPoints(progress.user, 10, 'tournament-join', { tournament: tournament._id });
+      const joinPoints = await pointsConfigController.getPointsForAction('tournament-join');
+      await awardPoints(progress.user, joinPoints, 'tournament-join', { tournament: tournament._id });
     } catch (e) {
       console.error('Failed to award join points:', e);
     }
@@ -652,13 +654,15 @@ exports.submitMatchResult = async (req, res) => {
       }
 
       if (winnerUserId) {
-        await awardPoints(winnerUserId, 5, 'tournament-match-win', { tournament: tournament._id, match: match._id });
+        const matchWinPoints = await pointsConfigController.getPointsForAction('tournament-match-win');
+        await awardPoints(winnerUserId, matchWinPoints, 'tournament-match-win', { tournament: tournament._id, match: match._id });
         if (match.roundIndex === totalRounds - 1) {
           // Only award tournament-win points for the most recently created tournament
           try {
             const latest = await Tournament.findOne().sort({ createdAt: -1 }).lean();
             if (latest && String(latest._id) === String(tournament._id)) {
-              await awardPoints(winnerUserId, 500, 'tournament-win', { tournament: tournament._id });
+              const winPoints = await pointsConfigController.getPointsForAction('tournament-win');
+              await awardPoints(winnerUserId, winPoints, 'tournament-win', { tournament: tournament._id });
             } else {
               console.log('Skipping tournament-win points: not the latest tournament');
             }
