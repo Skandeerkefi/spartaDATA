@@ -11,7 +11,13 @@ exports.getUserPoints = async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
 
     const transactions = await PointsTransaction.find({ user: userId }).sort({ createdAt: -1 }).limit(100).lean();
-    res.json({ balance: user.pointsBalance || 0, transactions });
+    res.json({
+      balance: user.pointsBalance || 0,
+      transactions,
+      streamPointsBaseline: user.streamPointsBaseline || null,
+      streamPointsCurrent: user.streamPointsCurrent || null,
+      streamPointsTotals: user.streamPointsTotals || null,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

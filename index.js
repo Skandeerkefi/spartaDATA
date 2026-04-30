@@ -6,6 +6,7 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const cron = require("node-cron");
 const { drawWinnerAuto } = require("./controllers/gwsController"); // You create this
+const { syncStreamPoints } = require("./controllers/streamPointsController");
 dotenv.config();
 const GWS = require("./models/GWS");
 const fetch = (...args) =>
@@ -31,6 +32,25 @@ cron.schedule("* * * * *", async () => {
 		}
 	} catch (err) {
 		console.error("Error during auto draw:", err);
+	}
+});
+
+// Hourly stream leaderboard sync job
+cron.schedule("0 * * * *", async () => {
+	console.log("Running stream leaderboard sync job...");
+	try {
+		await syncStreamPoints(
+			{ body: { limit: 500 }, query: {}, user: { id: null } },
+			{
+				json: (payload) => console.log("Stream leaderboard sync result:", payload),
+				status: function (code) {
+					this.statusCode = code;
+					return this;
+				},
+			}
+		);
+	} catch (err) {
+		console.error("Error during stream leaderboard sync:", err);
 	}
 });
 
@@ -214,6 +234,9 @@ app.use("/api/bonus-hunts", bonusHuntRoutes);
 // Points & Rewards routes
 const pointsRoutes = require('./routes/pointsRoutes');
 app.use('/api/points', pointsRoutes);
+
+const streamPointsRoutes = require('./routes/streamPointsRoutes');
+app.use('/api/stream-points', streamPointsRoutes);
 
 const rewardsRoutes = require('./routes/rewardsRoutes');
 app.use('/api/rewards', rewardsRoutes);
