@@ -13,6 +13,7 @@ router.post("/", verifyToken, isAdmin, tournamentController.createTournament);
 router.post("/:id/start", verifyToken, isAdmin, tournamentController.startTournament);
 router.post("/:id/join", verifyToken, tournamentController.joinTournament);
 router.post("/:id/slot-selection", verifyToken, tournamentController.selectSlot);
+router.post("/:id/process-bye", verifyToken, isAdmin, tournamentController.processBye);
 router.post(
   "/:id/matches/:matchId/result",
   verifyToken,

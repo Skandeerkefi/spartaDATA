@@ -37,6 +37,7 @@ const tournamentMatchSchema = new mongoose.Schema(
       enum: ["waiting", "ready", "completed"],
       default: "waiting",
     },
+    isBye: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

@@ -27,16 +27,39 @@ const ROUND_LABEL_BY_PLAYER_COUNT = {
   64: "Round of 64",
 };
 
-const isPowerOfTwo = (value) =>
-  Number.isInteger(value) && value >= 4 && (value & (value - 1)) === 0;
+const getTotalRounds = (playerLimit) => {
+  // Calculate rounds needed to crown a winner
+  // Formula: ceil(log2(playerLimit))
+  return Math.ceil(Math.log2(playerLimit));
+};
 
-const getTotalRounds = (playerLimit) => Math.log2(playerLimit);
+const getRoundLabel = (playerCount, roundIndex) => {
+  // Enhanced labels for any player count
+  const finalRound = getTotalRounds(playerCount) - 1;
+  if (roundIndex === finalRound) return "Final";
+  if (roundIndex === finalRound - 1) return "Semifinals";
+  if (roundIndex === finalRound - 2) return "Quarterfinals";
+  return `Round ${roundIndex + 1}`;
+};
 
-const getRoundLabel = (playerCount) =>
-  ROUND_LABEL_BY_PLAYER_COUNT[playerCount] || `Round of ${playerCount}`;
+const calculateBracketStructure = (playerLimit) => {
+  // Calculate how many players remain at each round
+  const rounds = [];
+  let playersRemaining = playerLimit;
+  let roundIndex = 0;
 
-const getMatchCount = (playerLimit, roundIndex) =>
-  playerLimit / Math.pow(2, roundIndex + 1);
+  while (playersRemaining > 1) {
+    rounds.push({
+      roundIndex,
+      playersRemaining,
+      matchCount: Math.ceil(playersRemaining / 2),
+    });
+    playersRemaining = Math.ceil(playersRemaining / 2);
+    roundIndex++;
+  }
+
+  return rounds;
+};
 
 const sortMatches = (a, b) =>
   a.roundIndex === b.roundIndex
@@ -78,19 +101,18 @@ const buildState = async (tournamentId) => {
 
 const createBracketSkeleton = async (tournamentId, playerLimit) => {
   const matches = [];
-  const totalRounds = getTotalRounds(playerLimit);
+  const bracketStructure = calculateBracketStructure(playerLimit);
 
-  for (let roundIndex = 0; roundIndex < totalRounds; roundIndex += 1) {
-    const playersRemaining = playerLimit / Math.pow(2, roundIndex);
-    const matchCount = getMatchCount(playerLimit, roundIndex);
-    const roundLabel = getRoundLabel(playersRemaining);
+  for (const round of bracketStructure) {
+    const roundLabel = getRoundLabel(playerLimit, round.roundIndex);
 
-    for (let matchIndex = 0; matchIndex < matchCount; matchIndex += 1) {
+    for (let matchIndex = 0; matchIndex < round.matchCount; matchIndex++) {
       matches.push({
         tournament: tournamentId,
-        roundIndex,
+        roundIndex: round.roundIndex,
         matchIndex,
         roundLabel,
+        isBye: false, // Will be set when players are assigned
       });
     }
   }
@@ -122,9 +144,9 @@ exports.createTournament = async (req, res) => {
     const limit = Number(playerLimit);
     const prize = Number(prizePool);
 
-    if (!title || !isPowerOfTwo(limit)) {
+    if (!title || !Number.isInteger(limit) || limit < 2) {
       return res.status(400).json({
-        message: "Title is required and playerLimit must be a power of two of 4 or greater.",
+        message: "Title is required and playerLimit must be an integer of 2 or greater.",
       });
     }
 
@@ -262,7 +284,12 @@ exports.joinTournament = async (req, res) => {
       status: "active",
     });
 
+    // Calculate which match this position goes to
+    // For flexible bracket: match index = floor((position - 1) / 2)
+    // Slot (A or B) = (position - 1) % 2
     const firstMatchIndex = Math.floor((position - 1) / 2);
+    const slot = (position - 1) % 2 === 0 ? "playerA" : "playerB";
+
     const match = await TournamentMatch.findOne({
       tournament: tournament._id,
       roundIndex: 0,
@@ -273,12 +300,9 @@ exports.joinTournament = async (req, res) => {
       return res.status(500).json({ message: "Bracket generation failed." });
     }
 
-    if (position % 2 === 1) {
-      match.playerA = progress._id;
-    } else {
-      match.playerB = progress._id;
-    }
+    match[slot] = progress._id;
 
+    // Check if match is ready (both players assigned)
     if (match.playerA && match.playerB) {
       match.status = "ready";
     }
@@ -323,20 +347,33 @@ exports.selectSlot = async (req, res) => {
       return res.status(400).json({ message: "You cannot pick slots after elimination." });
     }
 
-    if (progress.currentRound !== round) {
-      return res.status(400).json({ message: "That round is not unlocked yet." });
+    // Only allow slot selection in round 0 (first round)
+    if (round !== 0) {
+      return res.status(400).json({ message: "Slots can only be selected in the first round." });
     }
 
+    // Check if player already has a slot selection for round 0
     const alreadySelected = progress.slotSelections.some(
-      (selection) => selection.roundIndex === round
+      (selection) => selection.roundIndex === 0
     );
 
     if (alreadySelected) {
-      return res.status(400).json({ message: "This round's slot is locked." });
+      return res.status(400).json({ message: "You have already selected a slot. It will be used for all rounds." });
     }
 
-    progress.slotSelections.push({
-      roundIndex: round,
+    // Check that no other player in the tournament has selected this slot
+    const otherPlayersWithSlot = await TournamentProgress.findOne({
+      tournament: req.params.id,
+      user: { $ne: req.user.id },
+      "slotSelections.slotId": slotId,
+    });
+
+    if (otherPlayersWithSlot) {
+      return res.status(400).json({ message: "This slot has already been chosen by another player. Please select a different slot." });
+    }
+
+    const slotSelection = {
+      roundIndex: 0, // Always round 0 (first round)
       slotId,
       slotName,
       provider,
@@ -344,13 +381,122 @@ exports.selectSlot = async (req, res) => {
       url,
       locked: true,
       selectedAt: new Date(),
-    });
+    };
 
+    progress.slotSelections.push(slotSelection);
     await progress.save();
+
     res.json({ progress });
   } catch (error) {
     console.error("Select slot error:", error);
     res.status(500).json({ message: "Failed to save slot selection" });
+  }
+};
+
+const processByeRounds = async (tournamentId) => {
+  // Process all bye matches (matches with only one player) in the current state
+  // Auto-advance alone players to the next round
+  const tournament = await Tournament.findById(tournamentId);
+  if (!tournament) return;
+
+  const currentRoundMatches = await TournamentMatch.find({
+    tournament: tournamentId,
+    roundIndex: tournament.currentRound,
+    status: "waiting", // Not yet completed
+  })
+    .populate("playerA")
+    .populate("playerB");
+
+  for (const match of currentRoundMatches) {
+    const hasPlayerA = !!match.playerA;
+    const hasPlayerB = !!match.playerB;
+
+    // Check if this is a bye match (only one player)
+    if ((hasPlayerA && !hasPlayerB) || (!hasPlayerA && hasPlayerB)) {
+      const byePlayer = hasPlayerA ? match.playerA : match.playerB;
+      const totalRounds = getTotalRounds(tournament.playerLimit);
+
+      // Mark the match as completed with auto-win
+      match.status = "completed";
+      match.winner = byePlayer._id;
+      
+      // Set default scores for bye
+      if (hasPlayerA) {
+        match.betSizeA = 10;
+        match.payoutA = 0;
+        match.betSizeB = 10;
+        match.payoutB = 0;
+        match.multiplierA = 0; // Bye player gets x0
+        match.multiplierB = 0; // Missing opponent
+      } else {
+        match.betSizeA = 10;
+        match.payoutA = 0;
+        match.betSizeB = 10;
+        match.payoutB = 0;
+        match.multiplierA = 0; // Missing opponent
+        match.multiplierB = 0; // Bye player gets x0
+      }
+
+      await match.save();
+
+      // Update bye player to advance
+      if (match.roundIndex === totalRounds - 1) {
+        // Final round - bye player wins tournament
+        await TournamentProgress.findByIdAndUpdate(byePlayer._id, {
+          status: "winner",
+          currentRound: totalRounds,
+          lastMatch: match._id,
+        });
+        tournament.status = "finished";
+        tournament.finishedAt = new Date();
+        tournament.currentRound = totalRounds;
+        await tournament.save();
+      } else {
+        // Advance to next round
+        const nextRoundIndex = match.roundIndex + 1;
+        const nextMatchIndex = Math.floor(match.matchIndex / 2);
+        const nextSlot = match.matchIndex % 2 === 0 ? "playerA" : "playerB";
+
+        const nextMatch = await TournamentMatch.findOne({
+          tournament: tournamentId,
+          roundIndex: nextRoundIndex,
+          matchIndex: nextMatchIndex,
+        });
+
+        if (nextMatch) {
+          nextMatch[nextSlot] = byePlayer._id;
+          if (nextMatch.playerA && nextMatch.playerB) {
+            nextMatch.status = "ready";
+          }
+          await nextMatch.save();
+        }
+
+        await TournamentProgress.findByIdAndUpdate(byePlayer._id, {
+          status: "active",
+          currentRound: nextRoundIndex,
+          lastMatch: match._id,
+        });
+
+        tournament.currentRound = nextRoundIndex;
+        await tournament.save();
+      }
+    }
+  }
+};
+
+exports.processBye = async (req, res) => {
+  try {
+    const tournament = await Tournament.findById(req.params.id);
+    if (!tournament) {
+      return res.status(404).json({ message: "Tournament not found" });
+    }
+
+    await processByeRounds(tournament._id);
+    const state = await buildState(tournament._id);
+    res.json(state);
+  } catch (error) {
+    console.error("Process bye error:", error);
+    res.status(500).json({ message: "Failed to process bye rounds" });
   }
 };
 
