@@ -16,7 +16,7 @@ router.post("/", verifyToken, createSlotCall);
 router.get("/", verifyToken, isAdmin, getAllSlotCalls);
 router.get("/my", verifyToken, getUserSlotCalls);
 router.post("/:id/status", verifyToken, isAdmin, changeSlotCallStatus);
-router.post("/:id/bonus-call", verifyToken, addBonusCall); // Only if x250 is true
+router.post("/:id/bonus-call", verifyToken, addBonusCall); // Only if x1600 is true
 
 // Delete slot call by ID - only admin
 router.delete("/:id", verifyToken, isAdmin, async (req, res) => {

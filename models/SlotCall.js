@@ -15,7 +15,7 @@ const slotCallSchema = new mongoose.Schema({
 		enum: ["pending", "accepted", "rejected", "played"],
 		default: "pending",
 	},
-	x250Hit: { type: Boolean, default: false },
+	x1600Hit: { type: Boolean, default: false },
 	bonusCall: bonusCallSchema, // optional bonus call
 	createdAt: { type: Date, default: Date.now },
 });

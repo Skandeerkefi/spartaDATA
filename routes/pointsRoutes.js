@@ -9,5 +9,7 @@ router.post('/users/:userId/adjust', verifyToken, isAdmin, pointsController.adju
 router.get('/transactions', verifyToken, isAdmin, pointsController.listTransactions);
 router.get('/leaderboard', verifyToken, isAdmin, pointsController.getLeaderboard);
 router.post('/daily', verifyToken, pointsController.dailyLogin);
+router.get('/admin/all-users', verifyToken, isAdmin, pointsController.getAllUsers);
+router.patch('/admin/users/:userId/role', verifyToken, isAdmin, pointsController.changeUserRole);
 
 module.exports = router;

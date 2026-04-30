@@ -8,7 +8,7 @@ const pointsConfigSchema = new mongoose.Schema(
         'tournament-join',
         'tournament-match-win',
         'tournament-win',
-        'slot-call-x250',
+        'slot-call-x1600',
         'giveaway-participation',
         'giveaway-win',
         'daily-login',

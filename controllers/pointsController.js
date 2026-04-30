@@ -137,6 +137,52 @@ exports.getLeaderboard = async (req, res) => {
   }
 };
 
+// Get all users with details (for admin management)
+exports.getAllUsers = async (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 500, 1), 2000);
+    const users = await User.find({}, {
+      kickUsername: 1,
+      rainbetUsername: 1,
+      pointsBalance: 1,
+      role: 1,
+    })
+      .sort({ kickUsername: 1 })
+      .limit(limit)
+      .lean();
+
+    res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Change user role
+exports.changeUserRole = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { role } = req.body;
+
+    if (!['user', 'admin'].includes(role)) {
+      return res.status(400).json({ error: 'Role must be "user" or "admin"' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    user.role = role;
+    await user.save();
+
+    res.json({ ok: true, userId, kickUsername: user.kickUsername, role });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 // Daily login award
 exports.dailyLogin = async (req, res) => {
   try {

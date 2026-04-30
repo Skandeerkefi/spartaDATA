@@ -60,8 +60,7 @@ exports.getUserSlotCalls = async (req, res) => {
 };
 
 exports.changeSlotCallStatus = async (req, res) => {
-	const { status, x250Hit } = req.body;
-	const { id } = req.params;
+	const { status, x1600Hit } = req.body;
 
 	if (!["accepted", "rejected", "played"].includes(status)) {
 		return res.status(400).json({ message: "Invalid status." });
@@ -70,7 +69,7 @@ exports.changeSlotCallStatus = async (req, res) => {
 	try {
 		const updated = await SlotCall.findByIdAndUpdate(
 			id,
-			{ status, x250Hit: !!x250Hit },
+			{ status, x1600Hit: !!x1600Hit },
 			{ new: true }
 		).populate("user", "kickUsername");
 
@@ -78,11 +77,11 @@ exports.changeSlotCallStatus = async (req, res) => {
 			return res.status(404).json({ message: "Slot call not found." });
 
 
-		// Award milestone points only when call is played and x250 hit is confirmed
+		// Award milestone points only when call is played and x1600 hit is confirmed
 		try {
-			if (status === 'played' && updated.x250Hit) {
-				const x250Points = await pointsConfigController.getPointsForAction('slot-call-x250');
-				await awardPoints(updated.user._id, x250Points, 'slot-call-x250', { slotCall: updated._id });
+			if (status === 'played' && updated.x1600Hit) {
+				const x1600Points = await pointsConfigController.getPointsForAction('slot-call-x1600');
+				await awardPoints(updated.user._id, x1600Points, 'slot-call-x1600', { slotCall: updated._id });
 			}
 		} catch (e) {
 			console.error('Failed to award slot call status points:', e);
@@ -109,7 +108,7 @@ exports.addBonusCall = async (req, res) => {
 			return res.status(404).json({ message: "Slot call not found." });
 		}
 
-		if (!slotCall.x250Hit) {
+		if (!slotCall.x1600Hit) {
 			return res
 				.status(403)
 				.json({ message: "User is not eligible for a bonus call." });
