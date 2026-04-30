@@ -49,7 +49,7 @@ exports.joinGWS = async (req, res) => {
 
 		// Award participation points
 		try {
-			await awardPoints(req.user.id, 1, 'giveaway-participation', { gws: gws._id });
+			await awardPoints(req.user.id, 5, 'giveaway-participation', { gws: gws._id });
 		} catch (e) {
 			console.error('Failed to award giveaway participation points:', e);
 		}
@@ -93,7 +93,7 @@ exports.drawWinner = async (req, res) => {
 
 		// Award winner points
 		try {
-			await awardPoints(winner._id, 100, 'giveaway-win', { gws: gws._id });
+			await awardPoints(winner._id, 200, 'giveaway-win', { gws: gws._id });
 		} catch (e) {
 			console.error('Failed to award giveaway winner points:', e);
 		}
@@ -149,10 +149,10 @@ exports.drawWinnerAuto = async (gws) => {
 	gws.state = "complete"; // IMPORTANT: set state to complete here
 	await gws.save();
 
-	// Award winner points
-	try {
-		await awardPoints(winner, 100, 'giveaway-win', { gws: gws._id });
-	} catch (e) {
-		console.error('Failed to award giveaway winner points (auto):', e);
-	}
+		// Award winner points
+		try {
+			await awardPoints(winner, 200, 'giveaway-win', { gws: gws._id });
+		} catch (e) {
+			console.error('Failed to award giveaway winner points (auto):', e);
+		}
 };

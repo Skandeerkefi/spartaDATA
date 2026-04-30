@@ -490,9 +490,38 @@ exports.submitMatchResult = async (req, res) => {
 
     // Award match-win points to the winner (small amount), and if final, award tournament-win bonus
     try {
-      await awardPoints(winnerProgressId, 5, 'tournament-match-win', { tournament: tournament._id, match: match._id });
-      if (match.roundIndex === totalRounds - 1) {
-        await awardPoints(winnerProgressId, 500, 'tournament-win', { tournament: tournament._id });
+      // Resolve winner's User id from the TournamentProgress record
+      let winnerUserId = null;
+      try {
+        if (match.playerA && match.playerA.user) {
+          winnerUserId = match.playerA.user;
+        } else if (match.playerB && match.playerB.user) {
+          winnerUserId = match.playerB.user;
+        } else {
+          const progress = await TournamentProgress.findById(winnerProgressId).lean();
+          if (progress) winnerUserId = progress.user;
+        }
+      } catch (e) {
+        console.error('Failed to resolve winner user id from progress:', e);
+      }
+
+      if (winnerUserId) {
+        await awardPoints(winnerUserId, 5, 'tournament-match-win', { tournament: tournament._id, match: match._id });
+        if (match.roundIndex === totalRounds - 1) {
+          // Only award tournament-win points for the most recently created tournament
+          try {
+            const latest = await Tournament.findOne().sort({ createdAt: -1 }).lean();
+            if (latest && String(latest._id) === String(tournament._id)) {
+              await awardPoints(winnerUserId, 500, 'tournament-win', { tournament: tournament._id });
+            } else {
+              console.log('Skipping tournament-win points: not the latest tournament');
+            }
+          } catch (e) {
+            console.error('Failed to determine latest tournament for awarding points:', e);
+          }
+        }
+      } else {
+        console.log('No winner user id found; skipping point awards for match', match._id);
       }
     } catch (e) {
       console.error('Failed to award tournament points:', e);
