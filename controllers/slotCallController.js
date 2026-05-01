@@ -68,7 +68,7 @@ exports.changeSlotCallStatus = async (req, res) => {
 
 	try {
 		const updated = await SlotCall.findByIdAndUpdate(
-			id,
+			req.params.id,
 			{ status, x1600Hit: !!x1600Hit },
 			{ new: true }
 		).populate("user", "kickUsername");
