@@ -238,6 +238,9 @@ app.use('/api/points', pointsRoutes);
 const streamPointsRoutes = require('./routes/streamPointsRoutes');
 app.use('/api/stream-points', streamPointsRoutes);
 
+const guessBalanceRoutes = require('./routes/guessBalanceRoutes');
+app.use('/api/guess-balance', guessBalanceRoutes);
+
 const rewardsRoutes = require('./routes/rewardsRoutes');
 app.use('/api/rewards', rewardsRoutes);
 
