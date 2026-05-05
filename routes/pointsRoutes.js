@@ -11,5 +11,6 @@ router.get('/leaderboard', verifyToken, isAdmin, pointsController.getLeaderboard
 router.post('/daily', verifyToken, pointsController.dailyLogin);
 router.get('/admin/all-users', verifyToken, isAdmin, pointsController.getAllUsers);
 router.patch('/admin/users/:userId/role', verifyToken, isAdmin, pointsController.changeUserRole);
+router.patch('/admin/users/:userId/subscribed', verifyToken, isAdmin, pointsController.setUserSubscription);
 
 module.exports = router;

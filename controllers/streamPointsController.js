@@ -179,25 +179,44 @@ async function applyUserStreamDelta(user, currentStats, options = {}) {
 	await user.save(session ? { session } : undefined);
 
 	if (!seedOnly && totalPoints > 0) {
-		await PointsTransaction.create([
-			{
+		// create separate transactions so users can see watchtime and level points separately
+		const txs = [];
+		if (watchtimePoints > 0) {
+			txs.push({
 				user: user._id,
-				amount: totalPoints,
-				type: 'admin-adjust',
+				amount: watchtimePoints,
+				type: 'stream-watchtime',
 				meta: {
 					source,
 					stream: {
 						name: currentStats.name,
 						watchtimeDelta,
-						levelDelta,
 						currentWatchtime,
-						currentLevel,
 						watchtimePoints,
+					},
+				},
+			});
+		}
+		if (levelPoints > 0) {
+			txs.push({
+				user: user._id,
+				amount: levelPoints,
+				type: 'stream-level',
+				meta: {
+					source,
+					stream: {
+						name: currentStats.name,
+						levelDelta,
+						currentLevel,
 						levelPoints,
 					},
 				},
-			},
-		], session ? { session } : undefined);
+			});
+		}
+
+		if (txs.length > 0) {
+			await PointsTransaction.create(txs, session ? { session } : undefined);
+		}
 	}
 
 	return {

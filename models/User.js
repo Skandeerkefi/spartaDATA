@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema({
 	password: { type: String, required: true },
 	role: { type: String, enum: ["user", "admin"], default: "user" },
 	pointsBalance: { type: Number, default: 0 },
+	kickSubscribed: { type: Boolean, default: false },
 	streamPointsBaseline: {
 		watchtime: { type: Number, default: 0 },
 		level: { type: Number, default: 0 },

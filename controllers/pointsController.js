@@ -146,12 +146,59 @@ exports.getAllUsers = async (req, res) => {
       rainbetUsername: 1,
       pointsBalance: 1,
       role: 1,
+      kickSubscribed: 1,
     })
       .sort({ kickUsername: 1 })
       .limit(limit)
       .lean();
 
     res.json(users);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// Admin: set user's kick subscription state (and award points if subscribing)
+exports.setUserSubscription = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { kickSubscribed } = req.body;
+
+    if (typeof kickSubscribed !== 'boolean') return res.status(400).json({ error: 'kickSubscribed must be boolean' });
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    try {
+      const user = await User.findById(userId).session(session);
+      if (!user) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const wasSubscribed = !!user.kickSubscribed;
+      user.kickSubscribed = kickSubscribed;
+
+      // If admin sets subscribed true and user was not subscribed before, award configured points
+      if (kickSubscribed && !wasSubscribed) {
+        const points = await pointsConfigController.getPointsForAction('kick-subscribed');
+        if (points > 0) {
+          user.pointsBalance = (user.pointsBalance || 0) + Number(points);
+          await PointsTransaction.create([{ user: userId, amount: points, type: 'kick-subscribed', meta: { source: 'admin' } }], { session });
+        }
+      }
+
+      await user.save({ session });
+      await session.commitTransaction();
+      session.endSession();
+
+      res.json({ ok: true, userId, kickSubscribed: user.kickSubscribed, balance: user.pointsBalance });
+    } catch (err) {
+      await session.abortTransaction();
+      session.endSession();
+      throw err;
+    }
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });

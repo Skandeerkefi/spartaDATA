@@ -11,6 +11,7 @@ const DEFAULT_POINTS = {
   'daily-login': 0,
   'stream-watchtime': 2, // Points per 2 minutes of watchtime
   'stream-level': 25, // Points per level
+  'kick-subscribed': 0, // Points awarded when admin marks user as subscribed
 };
 
 // Initialize default configs if they don't exist
@@ -42,6 +43,7 @@ const formatDescription = (actionType) => {
     'daily-login': 'Points awarded for daily login',
     'stream-watchtime': 'Points awarded per 2 minutes of stream watchtime',
     'stream-level': 'Points awarded per stream level achieved',
+    'kick-subscribed': 'Points awarded when admin marks a user as subscribed to the stream',
   };
   return descriptions[actionType] || actionType;
 };

@@ -14,6 +14,7 @@ const pointsConfigSchema = new mongoose.Schema(
         'daily-login',
         'stream-watchtime',
         'stream-level',
+        'kick-subscribed',
       ],
       required: true,
       unique: true,
