@@ -102,6 +102,15 @@ app.use(
 
 app.use(express.json());
 
+// Better JSON parse error handling to return a clear 400 when body is malformed
+app.use((err, req, res, next) => {
+	if (err && err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+		console.error('Invalid JSON received for', req.method, req.url, '-', err.message);
+		return res.status(400).json({ message: 'Invalid JSON in request body' });
+	}
+	next(err);
+});
+
 // MongoDB Connection
 mongoose
 	.connect(process.env.MONGO_URI)
