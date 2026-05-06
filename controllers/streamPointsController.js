@@ -215,7 +215,10 @@ async function applyUserStreamDelta(user, currentStats, options = {}) {
 		}
 
 		if (txs.length > 0) {
-			await PointsTransaction.create(txs, session ? { session } : undefined);
+			await PointsTransaction.create(
+				txs,
+				session ? { session, ordered: true } : { ordered: true }
+			);
 		}
 	}
 
