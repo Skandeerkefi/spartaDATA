@@ -70,7 +70,7 @@ app.use((req, res, next) => {
 
 // CORS Middleware
 const allowedOrigins = [
-	"http://localhost:5173",
+	"http://localhost:5174",
 	"https://mister-tee.vercel.app",
 	"misterteedata.railway.internal",
 	"https://mister-tee.vercel.app/Leaderboards",

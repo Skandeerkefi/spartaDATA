@@ -1,7 +1,9 @@
 const axios = require("axios");
+const mongoose = require("mongoose");
 const Tournament = require("../models/Tournament");
 const TournamentMatch = require("../models/TournamentMatch");
 const TournamentProgress = require("../models/TournamentProgress");
+const TournamentBet = require("../models/TournamentBet");
 const PointsTransaction = require('../models/PointsTransaction');
 const { User } = require('../models/User');
 const pointsConfigController = require('./pointsConfigController');
@@ -16,6 +18,85 @@ const awardPoints = async (userId, amount, type, meta = {}) => {
     await PointsTransaction.create({ user: userId, amount: Number(amount), type, meta });
   } catch (err) {
     console.error('awardPoints error:', err);
+  }
+};
+
+const TOURNAMENT_BET_MAX_STAKE = 250;
+
+const settleTournamentBets = async ({
+  tournamentId,
+  losingProgressIds = [],
+  winningProgressId = null,
+  matchId = null,
+}) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    if (losingProgressIds.length > 0) {
+      const losingBets = await TournamentBet.find({
+        tournament: tournamentId,
+        targetProgress: { $in: losingProgressIds },
+        status: "pending",
+      }).session(session);
+
+      for (const bet of losingBets) {
+        bet.status = "lost";
+        bet.resolvedReason = "target-eliminated";
+        bet.resolvedAt = new Date();
+        bet.settledMatch = matchId || bet.settledMatch;
+        await bet.save({ session });
+      }
+    }
+
+    if (winningProgressId) {
+      const winningBets = await TournamentBet.find({
+        tournament: tournamentId,
+        targetProgress: winningProgressId,
+        status: "pending",
+      }).session(session);
+
+      for (const bet of winningBets) {
+        const user = await User.findById(bet.bettor).session(session);
+        if (!user) {
+          throw new Error(`Betting user not found for bet ${bet._id}`);
+        }
+
+        const payout = Number(bet.potentialPayout || bet.stake * 2);
+        user.pointsBalance = (user.pointsBalance || 0) + payout;
+        await user.save({ session });
+
+        await PointsTransaction.create(
+          [
+            {
+              user: user._id,
+              amount: payout,
+              type: "tournament-bet-win",
+              meta: {
+                tournament: tournamentId,
+                bet: bet._id,
+                targetParticipantId: bet.targetProgress,
+                match: matchId,
+              },
+            },
+          ],
+          { session }
+        );
+
+        bet.status = "won";
+        bet.resolvedReason = "target-won-tournament";
+        bet.resolvedAt = new Date();
+        bet.settledMatch = matchId || bet.settledMatch;
+        await bet.save({ session });
+      }
+    }
+
+    await session.commitTransaction();
+  } catch (error) {
+    await session.abortTransaction();
+    throw error;
+  } finally {
+    session.endSession();
   }
 };
 
@@ -246,6 +327,146 @@ exports.getMyProgress = async (req, res) => {
   }
 };
 
+exports.getMyBet = async (req, res) => {
+  try {
+    const bet = await TournamentBet.findOne({
+      tournament: req.params.id,
+      bettor: req.user.id,
+    })
+      .populate("targetProgress", "username position status currentRound")
+      .lean();
+
+    res.json({ bet: bet || null });
+  } catch (error) {
+    console.error("Get my bet error:", error);
+    res.status(500).json({ message: "Failed to load bet information" });
+  }
+};
+
+exports.placeBet = async (req, res) => {
+  try {
+    const tournament = await Tournament.findById(req.params.id);
+    if (!tournament) {
+      return res.status(404).json({ message: "Tournament not found" });
+    }
+
+    if (tournament.status === "finished") {
+      return res.status(400).json({ message: "This tournament is already finished." });
+    }
+
+    const existingParticipant = await TournamentProgress.findOne({
+      tournament: tournament._id,
+      user: req.user.id,
+    });
+
+    if (existingParticipant) {
+      return res.status(400).json({ message: "Tournament players cannot place spectator bets." });
+    }
+
+    const stake = Number(req.body.stake);
+    if (!Number.isInteger(stake) || stake < 1 || stake > TOURNAMENT_BET_MAX_STAKE) {
+      return res.status(400).json({ message: `Bet stake must be an integer between 1 and ${TOURNAMENT_BET_MAX_STAKE}.` });
+    }
+
+    const targetParticipantId = req.body.targetParticipantId;
+    if (!targetParticipantId) {
+      return res.status(400).json({ message: "Pick a tournament player to bet on." });
+    }
+
+    const targetProgress = await TournamentProgress.findById(targetParticipantId);
+    if (!targetProgress || String(targetProgress.tournament) !== String(tournament._id)) {
+      return res.status(404).json({ message: "Bet target not found in this tournament." });
+    }
+
+    if (targetProgress.status !== "active") {
+      return res.status(400).json({ message: "You can only bet on an active player." });
+    }
+
+    const existingBet = await TournamentBet.findOne({
+      tournament: tournament._id,
+      bettor: req.user.id,
+    });
+
+    if (existingBet) {
+      return res.status(400).json({ message: "You already placed a bet on this tournament." });
+    }
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      const user = await User.findById(req.user.id).session(session);
+      if (!user) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      if ((user.pointsBalance || 0) < stake) {
+        await session.abortTransaction();
+        session.endSession();
+        return res.status(400).json({ message: "Insufficient points for this bet." });
+      }
+
+      user.pointsBalance = (user.pointsBalance || 0) - stake;
+      await user.save({ session });
+
+      const bet = await TournamentBet.create(
+        [
+          {
+            tournament: tournament._id,
+            bettor: user._id,
+            bettorUsername: user.kickUsername || req.user.kickUsername || "",
+            targetProgress: targetProgress._id,
+            targetUsername: targetProgress.username,
+            stake,
+            potentialPayout: stake * 2,
+            status: "pending",
+          },
+        ],
+        { session }
+      );
+
+      await PointsTransaction.create(
+        [
+          {
+            user: user._id,
+            amount: -stake,
+            type: "tournament-bet-stake",
+            meta: {
+              tournament: tournament._id,
+              targetParticipantId: targetProgress._id,
+              targetUsername: targetProgress.username,
+            },
+          },
+        ],
+        { session }
+      );
+
+      await session.commitTransaction();
+      session.endSession();
+
+      const populatedBet = await TournamentBet.findById(bet[0]._id)
+        .populate("targetProgress", "username position status currentRound")
+        .lean();
+
+      const state = await buildState(tournament._id);
+      return res.status(201).json({
+        bet: populatedBet,
+        balance: user.pointsBalance,
+        state,
+      });
+    } catch (error) {
+      await session.abortTransaction();
+      session.endSession();
+      throw error;
+    }
+  } catch (error) {
+    console.error("Place bet error:", error);
+    res.status(500).json({ message: "Failed to place bet" });
+  }
+};
+
 exports.joinTournament = async (req, res) => {
   try {
     const tournament = await Tournament.findById(req.params.id);
@@ -449,6 +670,13 @@ const processByeRounds = async (tournamentId) => {
           currentRound: totalRounds,
           lastMatch: match._id,
         });
+
+        await settleTournamentBets({
+          tournamentId,
+          winningProgressId: byePlayer._id,
+          matchId: match._id,
+        });
+
         tournament.status = "finished";
         tournament.finishedAt = new Date();
         tournament.currentRound = totalRounds;
@@ -636,6 +864,13 @@ exports.submitMatchResult = async (req, res) => {
       ? (String(winnerProgressId) === String(match.playerA._id) ? match.playerB._id : match.playerA._id)
       : (hasPlayerA ? match.playerB?._id : match.playerA?._id);
 
+    await settleTournamentBets({
+      tournamentId: tournament._id,
+      losingProgressIds: loserProgressId ? [loserProgressId] : [],
+      winningProgressId: match.roundIndex === totalRounds - 1 ? winnerProgressId : null,
+      matchId: match._id,
+    });
+
     // Award match-win points to the winner (small amount), and if final, award tournament-win bonus
     try {
       // Resolve winner's User id from the TournamentProgress record
@@ -773,6 +1008,11 @@ exports.removeParticipant = async (req, res) => {
     if (!progress || String(progress.tournament) !== String(tournament._id)) {
       return res.status(404).json({ message: "Participant not found in tournament" });
     }
+
+    await settleTournamentBets({
+      tournamentId: tournament._id,
+      losingProgressIds: [progress._id],
+    });
 
     // Find and update all matches involving this participant
     const matches = await TournamentMatch.find({ tournament: tournament._id });
