@@ -70,7 +70,7 @@ app.use((req, res, next) => {
 
 // CORS Middleware
 const allowedOrigins = [
-	"http://localhost:5174",
+	"http://localhost:5173",
 	"https://mister-tee.vercel.app",
 	"misterteedata.railway.internal",
 	"https://mister-tee.vercel.app/Leaderboards",
@@ -188,8 +188,98 @@ app.post("/api/auth/login", async (req, res) => {
 
 	res.json({
 		token,
-		user: { id: user._id, kickUsername: user.kickUsername, role: user.role },
+		user: {
+			id: user._id,
+			kickUsername: user.kickUsername,
+			rainbetUsername: user.rainbetUsername,
+			role: user.role,
+		},
 	});
+});
+
+app.put("/api/auth/profile", verifyToken, async (req, res) => {
+	const {
+		kickUsername,
+		rainbetUsername,
+		currentPassword,
+		newPassword,
+		confirmNewPassword,
+	} = req.body;
+
+	try {
+		const user = await User.findById(req.user.id);
+		if (!user) {
+			return res.status(404).json({ message: "User not found." });
+		}
+
+		const nextKickUsername = typeof kickUsername === "string" ? kickUsername.trim() : "";
+		const nextRainbetUsername = typeof rainbetUsername === "string" ? rainbetUsername.trim() : "";
+		const changeKickUsername = nextKickUsername.length > 0 && nextKickUsername !== user.kickUsername;
+		const changeRainbetUsername = nextRainbetUsername.length > 0 && nextRainbetUsername !== user.rainbetUsername;
+		const changePassword = typeof newPassword === "string" && newPassword.length > 0;
+
+		if (!changeKickUsername && !changeRainbetUsername && !changePassword) {
+			return res.status(400).json({ message: "No changes provided." });
+		}
+
+		if (changeKickUsername) {
+			const existingKick = await User.findOne({
+				kickUsername: nextKickUsername,
+				_id: { $ne: user._id },
+			});
+			if (existingKick) {
+				return res.status(400).json({ message: "Kick username already exists." });
+			}
+			user.kickUsername = nextKickUsername;
+		}
+
+		if (changeRainbetUsername) {
+			const existingRainbet = await User.findOne({
+				rainbetUsername: nextRainbetUsername,
+				_id: { $ne: user._id },
+			});
+			if (existingRainbet) {
+				return res.status(400).json({ message: "Rainbet username already exists." });
+			}
+			user.rainbetUsername = nextRainbetUsername;
+		}
+
+		if (changePassword) {
+			if (!currentPassword) {
+				return res.status(400).json({ message: "Current password is required to change password." });
+			}
+
+			if (newPassword !== confirmNewPassword) {
+				return res.status(400).json({ message: "New passwords do not match." });
+			}
+
+			const passwordMatch = await bcrypt.compare(currentPassword, user.password);
+			if (!passwordMatch) {
+				return res.status(401).json({ message: "Current password is incorrect." });
+			}
+
+			if (newPassword.length < 6) {
+				return res.status(400).json({ message: "New password must be at least 6 characters." });
+			}
+
+			user.password = await bcrypt.hash(newPassword, 10);
+		}
+
+		await user.save();
+
+		res.json({
+			message: "Profile updated successfully.",
+			user: {
+				id: user._id,
+				kickUsername: user.kickUsername,
+				rainbetUsername: user.rainbetUsername,
+				role: user.role,
+			},
+		});
+	} catch (error) {
+		console.error("Profile update failed:", error);
+		res.status(500).json({ message: "Failed to update profile." });
+	}
 });
 
 // Slot Call Routes
