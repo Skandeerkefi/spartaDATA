@@ -18,6 +18,7 @@ const tournamentSchema = new mongoose.Schema(
     },
     startedAt: { type: Date },
     finishedAt: { type: Date },
+    betsOpen: { type: Boolean, default: true },
   },
   { timestamps: true }
 );

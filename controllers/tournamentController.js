@@ -270,6 +270,7 @@ exports.startTournament = async (req, res) => {
 
     // Allow starting with partial players - empty slots will auto-win with x0
     tournament.status = "ongoing";
+    tournament.betsOpen = false;
     tournament.startedAt = tournament.startedAt || new Date();
     tournament.currentRound = 0;
     await tournament.save();
@@ -279,6 +280,65 @@ exports.startTournament = async (req, res) => {
   } catch (error) {
     console.error("Start tournament error:", error);
     res.status(500).json({ message: "Failed to start tournament" });
+  }
+};
+
+exports.toggleBetsOpen = async (req, res) => {
+  try {
+    const tournament = await Tournament.findById(req.params.id);
+    if (!tournament) {
+      return res.status(404).json({ message: "Tournament not found" });
+    }
+
+    tournament.betsOpen = !tournament.betsOpen;
+    await tournament.save();
+
+    const state = await buildState(tournament._id);
+    res.json({
+      message: `Betting is now ${tournament.betsOpen ? "open" : "closed"}`,
+      state,
+    });
+  } catch (error) {
+    console.error("Toggle bets error:", error);
+    res.status(500).json({ message: "Failed to toggle bets" });
+  }
+};
+
+exports.getBetSummary = async (req, res) => {
+  try {
+    const tournament = await Tournament.findById(req.params.id);
+    if (!tournament) {
+      return res.status(404).json({ message: "Tournament not found" });
+    }
+
+    const bets = await TournamentBet.find({
+      tournament: tournament._id,
+      status: "pending"
+    })
+      .populate("targetProgress", "_id username")
+      .lean();
+
+    const betSummary = {};
+    bets.forEach((bet) => {
+      const playerId = String(bet.targetProgress?._id || "");
+      if (!betSummary[playerId]) {
+        betSummary[playerId] = {
+          playerId,
+          username: bet.targetProgress?.username || "Unknown",
+          totalWagered: 0,
+          betCount: 0,
+          potentialPayouts: 0,
+        };
+      }
+      betSummary[playerId].totalWagered += bet.stake;
+      betSummary[playerId].potentialPayouts += bet.potentialPayout;
+      betSummary[playerId].betCount += 1;
+    });
+
+    res.json({ betSummary: Object.values(betSummary) });
+  } catch (error) {
+    console.error("Get bet summary error:", error);
+    res.status(500).json({ message: "Failed to load bet summary" });
   }
 };
 
@@ -354,6 +414,10 @@ exports.placeBet = async (req, res) => {
       return res.status(400).json({ message: "This tournament is already finished." });
     }
 
+    if (!tournament.betsOpen) {
+      return res.status(400).json({ message: "Betting is currently closed for this tournament." });
+    }
+
     const existingParticipant = await TournamentProgress.findOne({
       tournament: tournament._id,
       user: req.user.id,
@@ -420,7 +484,7 @@ exports.placeBet = async (req, res) => {
             targetProgress: targetProgress._id,
             targetUsername: targetProgress.username,
             stake,
-            potentialPayout: stake * 2,
+            potentialPayout: stake * 3,
             status: "pending",
           },
         ],
