@@ -322,6 +322,10 @@ app.use("/api/leaderboard", leaderboardRoutes);
 const monthlyRoutes = require("./routes/monthlyLeaderboardRoutes");
 app.use("/api/monthly-leaderboard", monthlyRoutes);
 
+// Shuffle leaderboard routes
+const shuffleLeaderboardRoutes = require("./routes/shuffleLeaderboardRoutes");
+app.use("/api/shuffle-leaderboards", shuffleLeaderboardRoutes);
+
 // Tournament routes
 const tournamentRoutes = require("./routes/tournamentRoutes");
 app.use("/api/tournaments", tournamentRoutes);
