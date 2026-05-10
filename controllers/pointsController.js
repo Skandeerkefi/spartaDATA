@@ -98,10 +98,46 @@ exports.adjustBalance = async (req, res) => {
 // Admin list transactions
 exports.listTransactions = async (req, res) => {
   try {
-    const { userId } = req.query;
+    const { userId, user, type } = req.query;
     const filter = {};
-    if (userId) filter.user = userId;
-    const txs = await PointsTransaction.find(filter).sort({ createdAt: -1 }).limit(1000).lean();
+    const userIds = [];
+    let userQueryProvided = false;
+
+    if (userId) userIds.push(userId);
+
+    if (user) {
+      const trimmedUser = String(user).trim();
+      if (trimmedUser) {
+        userQueryProvided = true;
+        const idFilter = mongoose.Types.ObjectId.isValid(trimmedUser) ? [{ _id: trimmedUser }] : [];
+        const matchedUsers = await User.find({
+          $or: [
+            { kickUsername: { $regex: trimmedUser, $options: 'i' } },
+            { rainbetUsername: { $regex: trimmedUser, $options: 'i' } },
+            ...idFilter,
+          ],
+        }, { _id: 1 }).lean();
+
+        userIds.push(...matchedUsers.map((matchedUser) => String(matchedUser._id)));
+      }
+    }
+
+    if (userQueryProvided && userIds.length === 0) {
+      return res.json([]);
+    }
+
+    if (userIds.length > 0) {
+      filter.user = { $in: [...new Set(userIds)] };
+    }
+
+    if (type) filter.type = type;
+
+    const limit = Math.min(Math.max(Number(req.query.limit) || 1000, 1), 2000);
+    const txs = await PointsTransaction.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .populate('user', 'kickUsername rainbetUsername role')
+      .lean();
     res.json(txs);
   } catch (err) {
     console.error(err);
