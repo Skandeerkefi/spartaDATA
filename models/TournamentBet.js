@@ -22,7 +22,7 @@ const tournamentBetSchema = new mongoose.Schema(
       index: true,
     },
     targetUsername: { type: String, required: true },
-    stake: { type: Number, required: true, min: 1, max: 250 },
+    stake: { type: Number, required: true, min: 1, max: 500 },
     potentialPayout: { type: Number, required: true, min: 2 },
     status: {
       type: String,

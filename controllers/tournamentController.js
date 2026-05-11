@@ -21,7 +21,7 @@ const awardPoints = async (userId, amount, type, meta = {}) => {
   }
 };
 
-const TOURNAMENT_BET_MAX_STAKE = 250;
+const TOURNAMENT_BET_MAX_STAKE = 500;
 
 const settleTournamentBets = async ({
   tournamentId,
@@ -745,6 +745,23 @@ const processByeRounds = async (tournamentId) => {
         tournament.finishedAt = new Date();
         tournament.currentRound = totalRounds;
         await tournament.save();
+        // Award match-win and tournament-win points for bye winner
+        try {
+          const progress = await TournamentProgress.findById(byePlayer._id).lean();
+          if (progress && progress.user) {
+            const winnerUserId = progress.user;
+            const matchWinPoints = await pointsConfigController.getPointsForAction('tournament-match-win');
+            if (Number(matchWinPoints) !== 0) {
+              await awardPoints(winnerUserId, matchWinPoints, 'tournament-match-win', { tournament: tournament._id, match: match._id });
+            }
+            const winPoints = await pointsConfigController.getPointsForAction('tournament-win');
+            if (Number(winPoints) !== 0) {
+              await awardPoints(winnerUserId, winPoints, 'tournament-win', { tournament: tournament._id });
+            }
+          }
+        } catch (e) {
+          console.error('Failed to award points for bye winner:', e);
+        }
       } else {
         // Advance to next round
         const nextRoundIndex = match.roundIndex + 1;
@@ -937,37 +954,52 @@ exports.submitMatchResult = async (req, res) => {
 
     // Award match-win points to the winner (small amount), and if final, award tournament-win bonus
     try {
-      // Resolve winner's User id from the TournamentProgress record
+      // Resolve winner's User id from the TournamentProgress record (fetch explicitly)
       let winnerUserId = null;
       try {
-        if (match.playerA && match.playerA.user) {
-          winnerUserId = match.playerA.user;
-        } else if (match.playerB && match.playerB.user) {
-          winnerUserId = match.playerB.user;
-        } else {
+        if (winnerProgressId) {
           const progress = await TournamentProgress.findById(winnerProgressId).lean();
-          if (progress) winnerUserId = progress.user;
+          if (progress && progress.user) {
+            winnerUserId = progress.user;
+          } else if (match.playerA && match.playerA.user) {
+            winnerUserId = match.playerA.user;
+          } else if (match.playerB && match.playerB.user) {
+            winnerUserId = match.playerB.user;
+          } else {
+            console.log('No TournamentProgress.user found for winnerProgressId:', winnerProgressId);
+          }
         }
       } catch (e) {
         console.error('Failed to resolve winner user id from progress:', e);
       }
 
       if (winnerUserId) {
-        const matchWinPoints = await pointsConfigController.getPointsForAction('tournament-match-win');
-        await awardPoints(winnerUserId, matchWinPoints, 'tournament-match-win', { tournament: tournament._id, match: match._id });
-        if (match.roundIndex === totalRounds - 1) {
-          // Only award tournament-win points for the most recently created tournament
-          try {
-            const latest = await Tournament.findOne().sort({ createdAt: -1 }).lean();
-            if (latest && String(latest._id) === String(tournament._id)) {
-              const winPoints = await pointsConfigController.getPointsForAction('tournament-win');
-              await awardPoints(winnerUserId, winPoints, 'tournament-win', { tournament: tournament._id });
-            } else {
-              console.log('Skipping tournament-win points: not the latest tournament');
-            }
-          } catch (e) {
-            console.error('Failed to determine latest tournament for awarding points:', e);
+        try {
+          const matchWinPoints = await pointsConfigController.getPointsForAction('tournament-match-win');
+          if (Number(matchWinPoints) !== 0) {
+            await awardPoints(winnerUserId, matchWinPoints, 'tournament-match-win', { tournament: tournament._id, match: match._id });
+            console.log(`Awarded ${matchWinPoints} points to user ${winnerUserId} for match ${match._id}`);
           }
+
+          if (match.roundIndex === totalRounds - 1) {
+            // Only award tournament-win points for the most recently created tournament
+            try {
+              const latest = await Tournament.findOne().sort({ createdAt: -1 }).lean();
+              if (latest && String(latest._id) === String(tournament._id)) {
+                const winPoints = await pointsConfigController.getPointsForAction('tournament-win');
+                if (Number(winPoints) !== 0) {
+                  await awardPoints(winnerUserId, winPoints, 'tournament-win', { tournament: tournament._id });
+                  console.log(`Awarded ${winPoints} tournament-win points to user ${winnerUserId}`);
+                }
+              } else {
+                console.log('Skipping tournament-win points: not the latest tournament');
+              }
+            } catch (e) {
+              console.error('Failed to determine latest tournament for awarding points:', e);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to award tournament points:', e);
         }
       } else {
         console.log('No winner user id found; skipping point awards for match', match._id);

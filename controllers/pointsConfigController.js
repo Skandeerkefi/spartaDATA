@@ -3,7 +3,7 @@ const PointsConfig = require('../models/PointsConfig');
 // Default points for all actions
 const DEFAULT_POINTS = {
   'tournament-join': 10,
-  'tournament-match-win': 5,
+  'tournament-match-win': 25,
   'tournament-win': 500,
   'slot-call-x1600': 300,
   'giveaway-participation': 5,
